@@ -1,0 +1,105 @@
+/*
+ Preservation Virtual Machine Project
+
+ Yet another ivm emulator
+
+ Authors:
+    Sergio Romero Montiel
+    Eladio Gutierrez Carrasco
+    Oscar Plata Gonzalez
+
+ Date: May 2020
+
+ Thread-based parallel output implementation file
+*/
+
+
+#include <stdlib.h>
+#include "io_handler.h"
+
+QueueHandler_t queueHandler;
+static VoidFunct_t fooNewElem;
+
+
+static QueueHandler_t initQueueHandler( QueueHandler_t qH,
+                                        LinkedQueue_t freeQueue,
+                                        LinkedQueue_t waitQueue)
+{
+    if (!qH) return NULL;
+    qH->freeQueue=freeQueue;
+    qH->waitQueue=waitQueue;
+    return qH;
+}
+
+QueueHandler_t newQueueHandler()
+{
+    return initQueueHandler((QueueHandler_t)malloc(sizeof(struct QueueHandler)),
+                            newQueue(), newQueue());
+}
+
+
+// dequeue a free elem or create a new one
+void* getFreeElem(QueueHandler_t qH)
+{
+    return (qH ? dequeue(qH->freeQueue,0) ?: fooNewElem() : NULL);
+}
+
+
+// Code for output threads
+void* handlerWorker(void *arg)
+{
+    Funct_t workRoutine = (Funct_t)arg;
+    while(1) {
+        void* pElem = dequeueWait(queueHandler);
+        workRoutine(pElem);
+        __sync_fetch_and_add(&queueHandler->processed, 1);
+        enqueueFree(queueHandler,pElem);
+    }
+}
+
+
+// The interface functions:
+// ioInitParallel to be invoqued to make parallel output
+// (together with ioFlush() macro and waitUntilProcessed)
+void ioInitParallel(VoidFunct_t newElem, Funct_t flush_r)
+{
+
+    fooNewElem = newElem;
+    queueHandler = newQueueHandler();
+    #if !defined(NUM_THREADS)
+    // Default number of threads
+    int numThreads = 8;    
+    #else
+    // defined with -DNUM_THREADS=N at compile time
+    int numThreads = NUM_THREADS;
+    #endif
+    // if environment variable NUM_THREADS=N exists, this value is used instead
+    //  of any previous value
+    char *nthreads_str = getenv("NUM_THREADS");
+    if (nthreads_str) numThreads = atoi(nthreads_str);
+    // Must be 2 or more: 1 thread for emulation and (N-1) threads for io
+    if (numThreads < 2) numThreads = 2;
+    #if (VERBOSE>0)
+    printf("Number of threads: %d\n",numThreads);
+    #endif
+    for (int i=0; i<numThreads-1; i++) {
+        pthread_t tid;
+        pthread_create(&tid, NULL, handlerWorker, flush_r);
+        pthread_detach(tid);
+    }
+}
+
+// call waitUntilProcessed to ensure all output are processed and every
+//  outputElement are freed
+int waitUntilProcessed(QueueHandler_t qH)
+{
+    if (qH == NULL) return -1;
+    void *elem;
+    while (qH->processed < qH->requested) {
+        elem = dequeueFree(qH);
+        free(elem);
+    }
+    return 0;
+}
+
+    
