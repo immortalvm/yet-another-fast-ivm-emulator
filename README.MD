@@ -10,7 +10,7 @@ This ivm64 emulator takes an ivm64 binary and emulates its execution. It benefit
 ```
     make # generates the next three executables
     gcc -Ofast            ivm_emu.c # The fastest one without input/ouput but put_char
-	gcc -Ofast -DWITH_IO  ivm_emu.c ivm_io.c -lpng  # Enable IO instructions
+    gcc -Ofast -DWITH_IO  ivm_emu.c ivm_io.c -lpng  # Enable IO instructions
     gcc -Ofast -DWITH_IO  ivm_emu.c ivm_io.c io_handler.c list.c -lpng -DPARALLEL_OUTPUT -pthread # Parallel IO
 
     # the following options are for debugging and they can make the execution slower:
