@@ -18,42 +18,46 @@
 #include "io_handler.h"
 
 QueueHandler_t queueHandler;
-static VoidFunct_t fooNewElem;
 
 
 static QueueHandler_t initQueueHandler( QueueHandler_t qH,
                                         LinkedQueue_t freeQueue,
-                                        LinkedQueue_t waitQueue)
+                                        LinkedQueue_t waitQueue,
+                                        VoidFunct_t newElem,
+                                        Funct_t process)
 {
     if (!qH) return NULL;
-    qH->freeQueue=freeQueue;
-    qH->waitQueue=waitQueue;
+    qH->freeQueue = freeQueue;
+    qH->waitQueue = waitQueue;
+    qH->process = process;
+    qH->newElem = newElem;
     return qH;
 }
 
-QueueHandler_t newQueueHandler()
+QueueHandler_t newQueueHandler(VoidFunct_t newElem, Funct_t process)
 {
     return initQueueHandler((QueueHandler_t)malloc(sizeof(struct QueueHandler)),
-                            newQueue(), newQueue());
+                            newQueue(), newQueue(), newElem, process);
 }
 
 
 // dequeue a free elem or create a new one
 void* getFreeElem(QueueHandler_t qH)
 {
-    return (qH ? dequeue(qH->freeQueue,0) ?: fooNewElem() : NULL);
+    return (qH ? dequeue(qH->freeQueue,0) ?: qH->newElem() : NULL);
 }
 
 
 // Code for output threads
 void* handlerWorker(void *arg)
 {
-    Funct_t workRoutine = (Funct_t)arg;
+    QueueHandler_t this = (QueueHandler_t)arg;
+    Funct_t workRoutine = this->process;
     while(1) {
-        void* pElem = dequeueWait(queueHandler);
+        void* pElem = dequeueWait(this);
         workRoutine(pElem);
-        __sync_fetch_and_add(&queueHandler->processed, 1);
-        enqueueFree(queueHandler,pElem);
+        __sync_fetch_and_add(&this->processed, 1);
+        enqueueFree(this,pElem);
     }
 }
 
@@ -63,9 +67,8 @@ void* handlerWorker(void *arg)
 // (together with ioFlush() macro and waitUntilProcessed)
 void ioInitParallel(VoidFunct_t newElem, Funct_t flush_r)
 {
+    queueHandler = newQueueHandler(newElem,flush_r);
 
-    fooNewElem = newElem;
-    queueHandler = newQueueHandler();
     #if !defined(NUM_THREADS)
     // Default number of threads
     int numThreads = 8;    
@@ -84,7 +87,7 @@ void ioInitParallel(VoidFunct_t newElem, Funct_t flush_r)
     #endif
     for (int i=0; i<numThreads-1; i++) {
         pthread_t tid;
-        pthread_create(&tid, NULL, handlerWorker, flush_r);
+        pthread_create(&tid, NULL, handlerWorker, queueHandler);
         pthread_detach(tid);
     }
 }

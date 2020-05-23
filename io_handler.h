@@ -18,18 +18,21 @@
 #include <pthread.h>
 #include "list.h"
 
+typedef void (*Funct_t)(void*);
+typedef void* (*VoidFunct_t)();
+
 // element lists handler to feed worker threads
 struct QueueHandler{
     LinkedQueue_t freeQueue;
     LinkedQueue_t waitQueue;
     long requested;
     long processed;
+    Funct_t process;
+    VoidFunct_t newElem;
 };
 typedef struct QueueHandler* QueueHandler_t;
 extern QueueHandler_t queueHandler;
 
-typedef void (*Funct_t)(void*);
-typedef void* (*VoidFunct_t)();
 
 // the interface function to be invoqued to make parallel output
 extern void ioInitParallel(VoidFunct_t newElem, Funct_t flush);
