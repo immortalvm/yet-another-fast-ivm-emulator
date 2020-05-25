@@ -663,6 +663,8 @@ int main(int argc, char* argv[]){
     fprintf(OUTPUT_MSG, "\n");
     #endif
 
+    *(uint64_t*)&Mem[execEnd+1]=0;
+
     // Read argument file
     if (argFile){
         ivm_read_bin(argFile, execEnd+9, &argStart, &argEnd);
