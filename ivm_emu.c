@@ -459,18 +459,15 @@ int ivm_read_bin(char *filename, unsigned long offset, unsigned long *m_start, u
 */
 
 // Address translation
+char* idx2addr(unsigned long i);
+unsigned long addr2idx(char* p);
 inline char* idx2addr(unsigned long i){ return (char *)&(Mem[i]); }
 inline unsigned long addr2idx(char* p){ return (unsigned long)p - (unsigned long)Mem; }
 
 enum format_stack {FORMAT_STACK_ROW, FORMAT_STACK_IVM};
 void print_stack(int format, unsigned int n){
-    if (format == FORMAT_STACK_ROW) {
-        fprintf(OUTPUT_MSG, "\tSTACK = [");
-    }
-
-    if (format == FORMAT_STACK_IVM) {
-        fprintf(OUTPUT_MSG, "End stack:\n");
-    }
+    int interactive = isatty(fileno(OUTPUT_MSG));
+    int i;
 
     // The first valid stack position is one word over 
     // MemBytes-BYTESPERWORD, so we need to substract twice
@@ -480,6 +477,7 @@ void print_stack(int format, unsigned int n){
     char *p_start = MIN(stack_start, (char*)((uint64_t)(SP) + n*BYTESPERWORD));
     char *p;
     if (format == FORMAT_STACK_ROW) {
+        fprintf(OUTPUT_MSG, "\tSTACK = [");
         for (p=p_start; p>=SP; p=(char*)(((WORD_T*)p)-1)){
             WORD_T val = *((WORD_T*)p);
             //if (val < 0xffffff)
@@ -487,19 +485,19 @@ void print_stack(int format, unsigned int n){
             //else
             //    fprintf(OUTPUT_MSG, " | 0x..%lx", val & 0xffffff));
         }
-    }
-
-    if (format == FORMAT_STACK_IVM) {
-        for (p=SP; p<=p_start; p=(char*)(((WORD_T*)p)+1)){
-            WORD_T val = *((WORD_T*)p);
-                fprintf(OUTPUT_MSG, "0x..%06lx %ld\n", val & 0xffffff, val);
-        }
-    }
-
-    if (format == FORMAT_STACK_ROW) {
         fprintf(OUTPUT_MSG, "]\n");
     }
+
     if (format == FORMAT_STACK_IVM) {
+        fprintf(OUTPUT_MSG, "End stack:\n");
+        for (p=SP, i=1; p<=p_start; p=(char*)(((WORD_T*)p)+1), i++){
+            WORD_T val = *((WORD_T*)p);
+            fprintf(OUTPUT_MSG, "0x..%06lx %ld\n", val & 0xffffff, val);
+            if (interactive && (i%1000 == 0)) {
+                fprintf(OUTPUT_MSG, "--Press Enter--\n");
+                getchar();
+            }
+        }
         fprintf(OUTPUT_MSG, "\n");
     }
 }
@@ -578,8 +576,10 @@ void signal_handler(int s)
 
 
 // Stack operations
- inline void push(WORD_T v){ SP-=BYTESPERWORD; *((WORD_T*)SP)=(WORD_T)v; }
- inline WORD_T pop(){ WORD_T v=*((WORD_T*)SP); SP+=BYTESPERWORD; return v; }
+void push(WORD_T v);
+WORD_T pop();
+inline void push(WORD_T v){ SP-=BYTESPERWORD; *((WORD_T*)SP)=(WORD_T)v; }
+inline WORD_T pop(){ WORD_T v=*((WORD_T*)SP); SP+=BYTESPERWORD; return v; }
 
 
 int main(int argc, char* argv[]){
@@ -2070,6 +2070,15 @@ int main(int argc, char* argv[]){
 
     HALT:
 
+    signal(SIGINT,SIG_DFL);
+    uint64_t retval = *((uint64_t*)SP);
+    
+    #ifdef WITH_IO
+    ioFlush();
+        #ifdef PARALLEL_OUTPUT
+        waitUntilProcessed(queueHandler);
+        #endif
+    #endif
     fprintf(OUTPUT_MSG, "\n");
 
     #ifdef STEPCOUNT
@@ -2095,8 +2104,6 @@ int main(int argc, char* argv[]){
     // Print the stack in the same format than the vm implementation
     print_stack(FORMAT_STACK_IVM, 1<<31);
 
-    uint64_t retval = *((uint64_t*)SP);
-
     if (error){
         if (error == SIGFPE) {
             printf("error: division by zero\n");
@@ -2108,12 +2115,5 @@ int main(int argc, char* argv[]){
         exit(EXIT_FAILURE);
     }
 
-    #ifdef WITH_IO
-    ioFlush();
-        #ifdef PARALLEL_OUTPUT
-        waitUntilProcessed(queueHandler);
-        #endif
-    #endif
-    
     return (int)retval;
 }
