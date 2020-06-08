@@ -1605,6 +1605,7 @@ int main(int argc, char* argv[]){
                 #else
                 // NEXT = FETCH + EXEC
                 // TAIL if not recoded (high4 available)
+        	opcode1=high4;
                 opcode4=high4;
                 PC+=4; // 3 + FETCH
                 HISTOGRAM_ACTION(opcode1);
@@ -2043,6 +2044,9 @@ int main(int argc, char* argv[]){
 	#else
     // from github.com/preservationvm/ivm-implementations/blob/master/OtherMachines/vm.c
 	READ_FRAME:
+        #ifdef PARALLEL_OUTPUT
+        waitUntilProcessed(queueHandler);
+        #endif
 		ioReadFrame(pop(), &u, &v); // u -> x ; v -> y
 		push(u);
 		push(v);

@@ -237,6 +237,12 @@ void ioInitIn() {
 }
 
 void ioReadFrame(uint64_t i, uint64_t* width, uint64_t* height) {
+//*uma
+  numInpFiles = inpDir ? scandir(inpDir, &inpFiles, acceptPng, 0) : 0;
+  if (numInpFiles < 0) {
+    perror("scandir");
+    exit(NOT_READABLE);
+  }
   if (i >= numInpFiles) {
     *width = 0;
     *height = 0;
@@ -283,10 +289,11 @@ void ioReadFrame(uint64_t i, uint64_t* width, uint64_t* height) {
     spaceReset(&currentInImage, needed);
     currentInRowbytes = 0;
   }
-  if (*height > currentInRowpointers.size) {
+//*uma
+//  if (*height > currentInRowpointers.size) {
     spaceReset(&currentInRowpointers, sizeof(void*) * *height);
     currentInRowbytes = 0;
-  }
+//  }
   if (rowbytes != currentInRowbytes) {
     void** rp = currentInRowpointers.array;
     for (int y = 0; y < *height; y++) {
