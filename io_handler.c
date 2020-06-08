@@ -31,6 +31,8 @@ static QueueHandler_t initQueueHandler( QueueHandler_t qH,
     qH->waitQueue = waitQueue;
     qH->process = process;
     qH->newElem = newElem;
+    qH->processed = 0;
+    qH->requested = 0;
     return qH;
 }
 
