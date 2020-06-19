@@ -61,12 +61,12 @@
 // Version
 #ifdef WITH_IO
     #ifdef PARALLEL_OUTPUT
-    #define VERSION  "v1.1-fast-io-parallel"
+    #define VERSION  "v1.2-fast-io-parallel"
     #else
-    #define VERSION  "v1.1-fast-io"
+    #define VERSION  "v1.2-fast-io"
     #endif
 #else
-    #define VERSION  "v1.1-fast"
+    #define VERSION  "v1.2-fast"
 #endif
 
 ////////////////////////////////////////////////////////////////////////////////
