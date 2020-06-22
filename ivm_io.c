@@ -283,7 +283,7 @@ void ioReadFrame(uint64_t i, uint64_t* width, uint64_t* height) {
     spaceReset(&currentInImage, needed);
     currentInRowbytes = 0;
   }
-  if (*height > currentInRowpointers.size) {
+  if (*height*sizeof(void*) > currentInRowpointers.size) {
     spaceReset(&currentInRowpointers, sizeof(void*) * *height);
     currentInRowbytes = 0;
   }

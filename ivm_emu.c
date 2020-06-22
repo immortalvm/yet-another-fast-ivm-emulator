@@ -61,12 +61,12 @@
 // Version
 #ifdef WITH_IO
     #ifdef PARALLEL_OUTPUT
-    #define VERSION  "v1.2-fast-io-parallel"
+    #define VERSION  "v1.3-fast-io-parallel"
     #else
-    #define VERSION  "v1.2-fast-io"
+    #define VERSION  "v1.3-fast-io"
     #endif
 #else
-    #define VERSION  "v1.2-fast"
+    #define VERSION  "v1.3-fast"
 #endif
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -619,19 +619,24 @@ int main(int argc, char* argv[]){
     char *filename;
 
     fprintf(OUTPUT_MSG, "Yet another ivm emulator, %s\n", VERSION);
+    char *str = "Compiled with:";
     #if (VERBOSE>0)
-        fprintf(OUTPUT_MSG, "VERBOSE=%d compilation\n",VERBOSE);
+        fprintf(OUTPUT_MSG, "%s -DVERBOSE=%d", str, VERBOSE);
+        str = "";
     #endif
     #ifdef NOOPT
-        fprintf(OUTPUT_MSG, "NOOPT compilation\n");
+        fprintf(OUTPUT_MSG, "%s -DNOOPT", str);
+        str = "";
     #endif
     #ifdef STEPCOUNT
-        fprintf(OUTPUT_MSG, "STEPCOUNT compilation\n");
+        fprintf(OUTPUT_MSG, "%s -DSTEPCOUNT", str);
+        str = "";
     #endif
     #ifdef HISTOGRAM
-        fprintf(OUTPUT_MSG, "HISTOGRAM compilation\n");
+        fprintf(OUTPUT_MSG, "%s -DHISTOGRAM", str);
+        str = "";
     #endif
-    fprintf(OUTPUT_MSG,"\n");
+    if (str[0] == '\0') printf("\n");
 
     if (!get_options(argc, argv)){
         exit(EXIT_FAILURE);
