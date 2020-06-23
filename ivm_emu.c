@@ -61,12 +61,12 @@
 // Version
 #ifdef WITH_IO
     #ifdef PARALLEL_OUTPUT
-    #define VERSION  "v1.3-fast-io-parallel"
+    #define VERSION  "v1.4-fast-io-parallel"
     #else
-    #define VERSION  "v1.3-fast-io"
+    #define VERSION  "v1.4-fast-io"
     #endif
 #else
-    #define VERSION  "v1.3-fast"
+    #define VERSION  "v1.4-fast"
 #endif
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -493,7 +493,7 @@ void print_stack(int format, unsigned int n){
         for (p=SP, i=1; p<=p_start; p=(char*)(((WORD_T*)p)+1), i++){
             WORD_T val = *((WORD_T*)p);
             fprintf(OUTPUT_MSG, "0x..%06lx %ld\n", val & 0xffffff, val);
-            if (interactive && (i%1000 == 0)) {
+            if (interactive && (i%100 == 0)) {
                 fprintf(OUTPUT_MSG, "--Press Enter--\n");
                 getchar();
             }
@@ -2080,6 +2080,8 @@ int main(int argc, char* argv[]){
     HALT:
 
     signal(SIGINT,SIG_DFL);
+    signal(SIGSEGV,SIG_DFL);
+    signal(SIGFPE,SIG_DFL);
     uint64_t retval = *((uint64_t*)SP);
     
     #ifdef WITH_IO

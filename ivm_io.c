@@ -237,6 +237,8 @@ void ioInitIn() {
 }
 
 void ioReadFrame(uint64_t i, uint64_t* width, uint64_t* height) {
+  /*uma: update numImpFiles because new frames could have been generated*/
+  numInpFiles = inpDir ? scandir(inpDir, &inpFiles, acceptPng, NULL) : 0;
   if (i >= numInpFiles) {
     *width = 0;
     *height = 0;
