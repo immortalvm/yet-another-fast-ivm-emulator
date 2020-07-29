@@ -61,12 +61,12 @@
 // Version
 #ifdef WITH_IO
     #ifdef PARALLEL_OUTPUT
-    #define VERSION  "v1.4-fast-io-parallel"
+    #define VERSION  "v1.5-fast-io-parallel"
     #else
-    #define VERSION  "v1.4-fast-io"
+    #define VERSION  "v1.5-fast-io"
     #endif
 #else
-    #define VERSION  "v1.4-fast"
+    #define VERSION  "v1.5-fast"
 #endif
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -2082,7 +2082,7 @@ int main(int argc, char* argv[]){
     signal(SIGINT,SIG_DFL);
     signal(SIGSEGV,SIG_DFL);
     signal(SIGFPE,SIG_DFL);
-    uint64_t retval = *((uint64_t*)SP);
+    uint64_t retval = error ? EXIT_FAILURE : *((uint64_t*)SP);
     
     #ifdef WITH_IO
     ioFlush();
@@ -2123,7 +2123,6 @@ int main(int argc, char* argv[]){
         } else if (error == SIGINT) {
             printf("Program terminated by user request ^C\n");
         }
-        exit(EXIT_FAILURE);
     }
 
     return (int)retval;
