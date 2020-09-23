@@ -61,12 +61,12 @@
 // Version
 #ifdef WITH_IO
     #ifdef PARALLEL_OUTPUT
-    #define VERSION  "v1.5-fast-io-parallel"
+    #define VERSION  "v1.6-fast-io-parallel"
     #else
-    #define VERSION  "v1.5-fast-io"
+    #define VERSION  "v1.6-fast-io"
     #endif
 #else
-    #define VERSION  "v1.5-fast"
+    #define VERSION  "v1.6-fast"
 #endif
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -229,7 +229,7 @@
 #endif
 #ifdef PATTERN_PUSH1N
     #define PUSH1X2_INSN     2
-    #define PUSH1X4_INSN     2
+    #define PUSH1X4_INSN     1
 #endif
 #ifdef PATTERN_PUSH1_HIGH4
     #define C1TOSTACK1_INSN  2
@@ -337,7 +337,6 @@ unsigned long execEnd= 0;    // Last position of the bytecode in memory
 unsigned long argStart = 0;  // First position of the argument file in memory
 unsigned long argEnd= 0;     // Last position of the argument file in memory
 
-#if ((VERBOSE >= 2) || defined(HISTOGRAM))
 typedef struct insn_attr {
     const char *name; // Name of the instruction
     int opbytes;      // Number of bytes of the immediate operand 
@@ -347,7 +346,6 @@ typedef struct insn_attr {
 } insn_attr_t;
 // Array of attributes for all the instruction set
 insn_attr_t insn_attributes[256];
-#endif
 
 #ifdef HISTOGRAM
 unsigned long histogram[256];
@@ -406,7 +404,6 @@ int get_options(int argc, char* argv[]) {
             fprintf(OUTPUT_MSG, "inpDir=%s\n", inpDir); 
         if (argFile)
             fprintf(OUTPUT_MSG, "argFile=%s\n", argFile); 
-        fprintf(OUTPUT_MSG, "\n"); 
     #endif
 
     return 1;
@@ -466,7 +463,6 @@ inline unsigned long addr2idx(char* p){ return (unsigned long)p - (unsigned long
 
 enum format_stack {FORMAT_STACK_ROW, FORMAT_STACK_IVM};
 void print_stack(int format, unsigned int n){
-    int interactive = isatty(fileno(OUTPUT_MSG));
     int i;
 
     // The first valid stack position is one word over 
@@ -493,10 +489,6 @@ void print_stack(int format, unsigned int n){
         for (p=SP, i=1; p<=p_start; p=(char*)(((WORD_T*)p)+1), i++){
             WORD_T val = *((WORD_T*)p);
             fprintf(OUTPUT_MSG, "0x..%06lx %ld\n", val & 0xffffff, val);
-            if (interactive && (i%100 == 0)) {
-                fprintf(OUTPUT_MSG, "--Press Enter--\n");
-                getchar();
-            }
         }
         fprintf(OUTPUT_MSG, "\n");
     }
@@ -532,7 +524,6 @@ void print_stack_status(){
 }
 #endif
 
-#if (VERBOSE >= 2)
 void print_insn(char *pc){
     int opbytes;
     unsigned char op_code = *pc;
@@ -564,7 +555,6 @@ void print_insn(char *pc){
     }
     fprintf(OUTPUT_MSG, "\n");
 }
-#endif
 
 
 // setjmp/longjmp stuf
@@ -656,9 +646,7 @@ int main(int argc, char* argv[]){
 
     // Instruction Set.
     init_insn_addr(addr);
-	#if ((VERBOSE >= 2) || defined(HISTOGRAM))
     init_insn_attributes(insn_attributes);
-	#endif
         
     // Read bytecode file
     ivm_read_bin(filename, segment_start, &execStart, &execEnd);
@@ -1566,10 +1554,11 @@ int main(int argc, char* argv[]){
         #ifdef PATTERN_PUSH1N
         #if (PUSH1X4_INSN > 0 || PUSH1X2_INSN > 0)
         if (0x00080000 == (opcode4 & 0x000ff0000)) {
-            high4=*(uint32_t*)(PC+3);
             #if (PUSH1X4_INSN > 0)
+            high4=*(uint32_t*)(PC+3);
             if (0x00080008 == (high4 & 0x000ff00ff)) {
                 RECODE(PUSH1X4); // PUSH1/PUSH1/PUSH1/PUSH1
+                high4=*(uint32_t*)(PC+3);
                 next1 = opcode4 >> 8;
                 push((WORD_T)next1);
                 next1 = opcode4 >> 24;
@@ -2113,15 +2102,27 @@ int main(int argc, char* argv[]){
     #endif
 
     // Print the stack in the same format than the vm implementation
-    print_stack(FORMAT_STACK_IVM, 1<<31);
+    unsigned long nstack = (idx2addr(MemBytes - BYTESPERWORD) - SP)/sizeof(WORD_T);
+    if (error){
+        int ntop = 4;
+        fprintf(OUTPUT_MSG, "(error: showing top %d out of %ld stack positions and last instruction)\n", ntop+1, nstack);
+        print_insn(PC-1);
+        print_stack(FORMAT_STACK_IVM, ntop);
+    } else {
+        int ntop = 16;
+        //print_stack(FORMAT_STACK_IVM, 1<<31);
+        if (nstack > ntop)
+        fprintf(OUTPUT_MSG, "(showing top %d out of %ld stack positions)\n", ntop+1, nstack);
+        print_stack(FORMAT_STACK_IVM, ntop);
+    }
 
     if (error){
         if (error == SIGFPE) {
-            printf("error: division by zero\n");
+            fprintf(OUTPUT_MSG, "error: division by zero\n");
         } else if (error == SIGSEGV) {
-            printf("error: segmentation fault\n");
+            fprintf(OUTPUT_MSG, "error: segmentation fault\n");
         } else if (error == SIGINT) {
-            printf("Program terminated by user request ^C\n");
+            fprintf(OUTPUT_MSG, "Program terminated by user request ^C\n");
         }
     }
 
