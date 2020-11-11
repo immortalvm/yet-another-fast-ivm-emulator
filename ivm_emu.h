@@ -310,6 +310,14 @@ enum OPCODES {
 		OPCODE_ST8_SP_4,
 	#endif
 #endif
+#ifdef PATTERN_GETSP_STORE
+    #if (FAST_POP_INSN > 0)
+        OPCODE_FAST_POP,
+    #endif
+    #if (FAST_POP2_INSN > 0)
+        OPCODE_FAST_POP2,
+    #endif
+#endif
 #ifdef PATTERN_PUSH0
 	#if (SHORT_JUMP_INSN > 0)
 		OPCODE_SHORT_JUMP,
@@ -320,6 +328,15 @@ enum OPCODES {
 	#if (NOT_0_MUL_INSN > 0)
 		OPCODE_NOT_0_MUL,
 	#endif
+    #if (PUSH0X2_INSN > 0)
+        OPCODE_PUSH0X2,
+    #endif
+    #if (PUSH0X3_INSN > 0)
+        OPCODE_PUSH0X3,
+    #endif
+    #if (PUSH0X4_INSN > 0)
+        OPCODE_PUSH0X4,
+    #endif
 #endif
 #ifdef PATTERN_PUSH1_ALU
 	#if (LT_1_JZ_INSN > 0)
@@ -622,12 +639,23 @@ ATTRIBUTE(A,SP_1,2);
 #define init_attributes_pattern_getsp_push1(A)
 #endif
 
+#ifdef PATTERN_GETSP_STORE
+#define init_attributes_pattern_getsp_store(A)  \
+ATTRIBUTE(A,FAST_POP,1); \
+ATTRIBUTE(A,FAST_POP2,3);
+#else
+#define init_attributes_pattern_getsp_store(A)
+#endif
+
 #ifdef PATTERN_PUSH0
 //push0/xor
 #define init_attributes_pattern_push0(A)	\
 ATTRIBUTE(A,SHORT_JUMP,2); \
 ATTRIBUTE(A,XOR_0,1); \
-ATTRIBUTE(A,NOT_0_MUL,2);
+ATTRIBUTE(A,NOT_0_MUL,2); \
+ATTRIBUTE(A,PUSH0X2,1); \
+ATTRIBUTE(A,PUSH0X3,2); \
+ATTRIBUTE(A,PUSH0X4,3);
 #else
 #define init_attributes_pattern_push0(A)
 #endif
@@ -717,6 +745,7 @@ ATTRIBUTE(A,XOR_1_LT,3);
 		init_attributes_pattern_getsp_push1_add(A);	\
 		init_attributes_pattern_getsp_push2_add(A);	\
 		init_attributes_pattern_getsp_push1(A);		\
+        	init_attributes_pattern_getsp_store(A);     \
 		init_attributes_pattern_push0(A);			\
 		init_attributes_pattern_push1_alu(A);		\
 		init_attributes_pattern_push1_pow2(A);		\
@@ -911,11 +940,22 @@ BIND_LABEL(B,SP_1);
 #define init_addr_pattern_getsp_push1(B)
 #endif
 
+#ifdef PATTERN_GETSP_STORE
+#define init_addr_pattern_getsp_store(B)    \
+BIND_LABEL(B,FAST_POP); \
+BIND_LABEL(B,FAST_POP2);
+#else
+#define init_addr_pattern_getsp_store(B)
+#endif
+
 #ifdef PATTERN_PUSH0
 #define init_addr_pattern_push0(B)			\
 BIND_LABEL(B,SHORT_JUMP); \
 BIND_LABEL(B,XOR_0); \
-BIND_LABEL(B,NOT_0_MUL);
+BIND_LABEL(B,NOT_0_MUL); \
+BIND_LABEL(B,PUSH0X2); \
+BIND_LABEL(B,PUSH0X3); \
+BIND_LABEL(B,PUSH0X4);
 #else
 #define init_addr_pattern_push0(B)
 #endif
@@ -1005,6 +1045,7 @@ BIND_LABEL(B,XOR_1_LT);
 		init_addr_pattern_getsp_push1_add(B);	\
 		init_addr_pattern_getsp_push2_add(B);	\
 		init_addr_pattern_getsp_push1(B);		\
+        	init_addr_pattern_getsp_store(B);       \
 		init_addr_pattern_push0(B);				\
 		init_addr_pattern_push1_alu(B);			\
 		init_addr_pattern_push1_pow2(B);		\

@@ -61,12 +61,12 @@
 // Version
 #ifdef WITH_IO
     #ifdef PARALLEL_OUTPUT
-    #define VERSION  "v1.6-fast-io-parallel"
+    #define VERSION  "v1.7-fast-io-parallel"
     #else
-    #define VERSION  "v1.6-fast-io"
+    #define VERSION  "v1.7-fast-io"
     #endif
 #else
-    #define VERSION  "v1.6-fast"
+    #define VERSION  "v1.7-fast"
 #endif
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -104,6 +104,7 @@
     #define PATTERN_GETSP_PUSH1_ADD
     #define PATTERN_GETSP_PUSH2_ADD
     #define PATTERN_GETSP_PUSH1
+    #define PATTERN_GETSP_STORE
     #define PATTERN_PUSH0
     #define PATTERN_PUSH1_POW2
     #define PATTERN_PUSH1_ALU
@@ -209,10 +210,17 @@
     #define DEC_SP_1_INSN    2
     #define SP_1_INSN        0
 #endif
+#ifdef PATTERN_GETSP_STORE
+    #define FAST_POP_INSN    2
+    #define FAST_POP2_INSN   2
+#endif
 #ifdef PATTERN_PUSH0
     #define SHORT_JUMP_INSN  2
     #define XOR_0_INSN       2
     #define NOT_0_MUL_INSN   0
+    #define PUSH0X2_INSN     2
+    #define PUSH0X3_INSN     2
+    #define PUSH0X4_INSN     2
 #endif
 #ifdef PATTERN_PUSH1_ALU
     #define LT_1_JZ_INSN     2
@@ -1375,6 +1383,29 @@ int main(int argc, char* argv[]){
             }
         } else
         #endif
+        #ifdef PATTERN_GETSP_STORE
+        if (0x1400 == (opcode4 & 0x0fc00)) { // 20, 21, 22, 23
+            #if (FAST_POP2_INSN > 0)
+            if (0x14060000 == (opcode4 & 0x0fcff0000)) {
+                RECODE(FAST_POP2);
+                SP+=16;
+                PC+=3; STEPCOUNT_ACTION(3); NEXT;
+            } else
+            #endif
+            #if (FAST_POP_INSN > 0)
+            {
+                RECODE(FAST_POP);
+                SP+=8;
+                PC+=1; STEPCOUNT_ACTION(1); NEXT;
+            }
+            #else
+            {
+                push((WORD_T)SP);
+                NEXT;
+            }
+            #endif
+        } else
+        #endif
         { // get_sp followed by any other insn (neither push1 nor push2)
             RECODE(NEW_GET_SP); // GET_SP
             push((WORD_T)SP);
@@ -1408,6 +1439,36 @@ int main(int argc, char* argv[]){
             u=pop();
             push(~u+1);
             PC+=2; STEPCOUNT_ACTION(2); NEXT;
+        } else
+        #endif
+        #if (PUSH0X4_INSN > 0)
+        if (0x07070700 == (opcode4 & 0x0ffffff00)) {
+            RECODE(PUSH0X4);    // push0/push0/push0/push0
+            SP-=BYTESPERWORD*4;
+            *((WORD_T*)SP)=(WORD_T)0;
+            *((WORD_T*)SP+1)=(WORD_T)0;
+            *((WORD_T*)SP+2)=(WORD_T)0;
+            *((WORD_T*)SP+3)=(WORD_T)0;
+            PC+=3; STEPCOUNT_ACTION(3); NEXT;
+        } else
+        #endif
+        #if (PUSH0X3_INSN > 0)
+        if (0x070700 == (opcode4 & 0x0ffff00)) {
+            RECODE(PUSH0X3);    // push0/push0/push0
+            SP-=BYTESPERWORD*3;
+            *((WORD_T*)SP)=(WORD_T)0;
+            *((WORD_T*)SP+1)=(WORD_T)0;
+            *((WORD_T*)SP+2)=(WORD_T)0;
+            PC+=2; STEPCOUNT_ACTION(2); NEXT;
+        } else
+        #endif
+        #if (PUSH0X2_INSN > 0)
+        if (0x0700 == (opcode4 & 0x0ff00)) {
+            RECODE(PUSH0X2);    // push0/push0
+            SP-=BYTESPERWORD*2;
+            *((WORD_T*)SP)=(WORD_T)0;
+            *((WORD_T*)SP+1)=(WORD_T)0;
+            PC++; STEPCOUNT_ACTION(1); NEXT;
         } else
         #endif
         #endif
@@ -1706,7 +1767,7 @@ int main(int argc, char* argv[]){
         } else
         #endif
         #if (C2TOSTACK8_INSN > 0)
-        if (0x1720000806000001 == (opcode8 & 0x0ffff00ffff000000)) {
+        if (0x1720000806000000 == (opcode8 & 0x0ffff00ffff000000)) {
             RECODE(C2TOSTACK8);    // PUSH2/GET_SP/PUSH1/ADD/STORE8
             next2_val = opcode4 >> 8; 
             next2_addr = *(PC+4); 
@@ -1717,7 +1778,7 @@ int main(int argc, char* argv[]){
         } else
         #endif
         #if (C2TOSTACK4_INSN > 0)
-        if (0x1620000806000001 == (opcode8 & 0x0ffff00ffff000000)) {
+        if (0x1620000806000000 == (opcode8 & 0x0ffff00ffff000000)) {
             RECODE(C2TOSTACK4);    // PUSH2/GET_SP/PUSH1/ADD/STORE4
             next2_val = opcode4 >> 8; 
             next2_addr = *(PC+4); 
@@ -1728,7 +1789,7 @@ int main(int argc, char* argv[]){
         } else
         #endif
         #if (C2TOSTACK2_INSN > 0)
-        if (0x1520000806000001 == (opcode8 & 0x0ffff00ffff000000)) {
+        if (0x1520000806000000 == (opcode8 & 0x0ffff00ffff000000)) {
             RECODE(C2TOSTACK2);    // PUSH2/GET_SP/PUSH1/ADD/STORE2
             next2_val = opcode4 >> 8; 
             next2_addr = *(PC+4); 
