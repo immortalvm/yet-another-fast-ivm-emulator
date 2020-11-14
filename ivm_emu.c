@@ -61,12 +61,12 @@
 // Version
 #ifdef WITH_IO
     #ifdef PARALLEL_OUTPUT
-    #define VERSION  "v1.7-fast-io-parallel"
+    #define VERSION  "v1.8-fast-io-parallel"
     #else
-    #define VERSION  "v1.7-fast-io"
+    #define VERSION  "v1.8-fast-io"
     #endif
 #else
-    #define VERSION  "v1.7-fast"
+    #define VERSION  "v1.8-fast"
 #endif
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -338,6 +338,11 @@ char *Mem;              // The memory
 unsigned long MemBytes; // Size of the memory
 void* addr[256];        // Where to go to execute the instruction
 
+
+long segment_start = 0; // Where to load the bytecode
+                        // Mem[segment_start] is the
+                        // first byte of the program 
+
 //Program bytes are placed from Mem[execStart] to Mem[execEnd],
 //both included
 unsigned long execStart = 0; // First position of the bytecode in memory
@@ -380,6 +385,7 @@ int get_options(int argc, char* argv[]) {
           case 'o': outDir = optarg; break;
           case 'i': inpDir = optarg; break;
           case 'a': argFile = optarg; break;
+          case 'L': segment_start = atol(optarg)>0?atol(optarg):0; break;
           case '?': // pass through
           default:
             if (optopt == 'm')
@@ -609,10 +615,6 @@ int main(int argc, char* argv[]){
 
     uint64_t a, b, r, u, v; // Unsigned aux. variables
     int64_t  x, y;          // Signed aux. variables 
-
-    long segment_start = 0; // Where to load the bytecode
-                            // Mem[segment_start] is the
-                            // first byte of the program 
 
     char *filename;
 
@@ -1660,7 +1662,7 @@ int main(int argc, char* argv[]){
                 #else
                 // NEXT = FETCH + EXEC
                 // TAIL if not recoded (high4 available)
-        	opcode1=high4;
+                opcode1=high4;
                 opcode4=high4;
                 PC+=4; // 3 + FETCH
                 HISTOGRAM_ACTION(opcode1);
@@ -2142,11 +2144,21 @@ int main(int argc, char* argv[]){
     #endif
     fprintf(OUTPUT_MSG, "\n");
 
+
+
+    #define HUMANSIZE(x) ((float)((x>1e9)?(x/1.0e9):(x>1.0e6)?(x/1.0e6):(x>1e3)?(x/1.0e3):x))
+    #define HUMANPREFIX(x)  ((x>1e9)?"GB":(x>1e6)?"MB":(x>1e3)?"KB":"B")
+
     #ifdef STEPCOUNT
+        long binsize = execEnd-execStart;
         #if (defined(HISTOGRAM) && !defined(NOOPT))
+        fprintf(OUTPUT_MSG, "Binary file size: %lu bytes (%.1f %s)\n", 
+                             binsize, HUMANSIZE(binsize) ,HUMANPREFIX(binsize));
         fprintf(OUTPUT_MSG, "Executed %lu instructions; %lu fetches (%4.2lf insn per fetch)\n\n",
                             steps, fetchs, (double)steps/fetchs);   
         #else
+        fprintf(OUTPUT_MSG, "Binary file size: %lu bytes (%.1f %s)\n", 
+                             binsize, HUMANSIZE(binsize) ,HUMANPREFIX(binsize));
         fprintf(OUTPUT_MSG, "Executed %lu instructions\n\n", steps);
         #endif
     #endif
@@ -2166,8 +2178,12 @@ int main(int argc, char* argv[]){
     unsigned long nstack = (idx2addr(MemBytes - BYTESPERWORD) - SP)/sizeof(WORD_T);
     if (error){
         int ntop = 4;
-        fprintf(OUTPUT_MSG, "(error: showing top %d out of %ld stack positions and last instruction)\n", ntop+1, nstack);
-        print_insn(PC-1);
+        fprintf(OUTPUT_MSG, "(error: showing last PC and top %d out of %ld stack positions)\n", ntop+1, nstack);
+        if ( addr2idx(PC-1) < execStart || addr2idx(PC-1) > execEnd){
+            printf("PC=%p out of range\n", PC-1);
+        } else {
+            print_insn(PC-1);
+        }
         print_stack(FORMAT_STACK_IVM, ntop);
     } else {
         int ntop = 16;

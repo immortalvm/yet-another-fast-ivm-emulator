@@ -49,7 +49,7 @@ Binaries generated with ivm v0.28.
 | benchmark                      | no optimization | optimized |  optimized +  parallel io |
 |--------------------------------|-----------------|-----------|---------------------------| 
 | static_unboxing                |4m50s            | 1m45s     |               |
-| ex4_short_video.s (512 frames) |3.59s            | 2.97s     |  0.93s        |
+| ex4_short_video.s (512 frames) |3m59s            | 2m97s     |  0.93s        |
 
 
 

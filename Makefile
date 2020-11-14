@@ -17,7 +17,8 @@ EXEC_PAR	:=ivm_emu_fast_io_parallel
 # Compiler
 CC = gcc
 # Compiler options
-CFLAGS = -Wall -Ofast -I.
+#CFLAGS = -Wall -Ofast -I.
+CFLAGS = -Ofast -I. -DSTEPCOUNT
 # ----------------------RULES-------------------------------------------
 # Targets y sufijos
 .PHONY: all clean

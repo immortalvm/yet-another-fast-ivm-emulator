@@ -745,7 +745,7 @@ ATTRIBUTE(A,XOR_1_LT,3);
 		init_attributes_pattern_getsp_push1_add(A);	\
 		init_attributes_pattern_getsp_push2_add(A);	\
 		init_attributes_pattern_getsp_push1(A);		\
-        	init_attributes_pattern_getsp_store(A);     \
+		init_attributes_pattern_getsp_store(A);     \
 		init_attributes_pattern_push0(A);			\
 		init_attributes_pattern_push1_alu(A);		\
 		init_attributes_pattern_push1_pow2(A);		\
@@ -1045,7 +1045,7 @@ BIND_LABEL(B,XOR_1_LT);
 		init_addr_pattern_getsp_push1_add(B);	\
 		init_addr_pattern_getsp_push2_add(B);	\
 		init_addr_pattern_getsp_push1(B);		\
-        	init_addr_pattern_getsp_store(B);       \
+		init_addr_pattern_getsp_store(B);       \
 		init_addr_pattern_push0(B);				\
 		init_addr_pattern_push1_alu(B);			\
 		init_addr_pattern_push1_pow2(B);		\
