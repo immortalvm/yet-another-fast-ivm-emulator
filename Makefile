@@ -35,13 +35,13 @@ $(EXEC_SEQ): ivm_emu.c ivm_io.c
 	$(CC) $(CFLAGS) $^ -o $@ -DWITH_IO -lpng
 
 $(EXEC_HISTO): ivm_emu.c ivm_io.c
-	$(CC) $(CFLAGS) $^ -o $@ -DWITH_IO -lpng -DNOOPT -DVERBOSE=1 -DHISTOGRAM
+	$(CC) $(CFLAGS) $^ -o $@ -DWITH_IO -lpng -DSTEPCOUNT -DNOOPT -DVERBOSE=1 -DHISTOGRAM
 
 $(EXEC_PROBE): ivm_emu.c ivm_io.c
-	$(CC) $(CFLAGS) $^ -o $@ -DWITH_IO -lpng -DNOOPT -DVERBOSE=2
+	$(CC) $(CFLAGS) $^ -o $@ -DWITH_IO -lpng -DSTEPCOUNT -DNOOPT -DVERBOSE=2
 
 $(EXEC_TRACE): ivm_emu.c ivm_io.c
-	$(CC) $(CFLAGS) $^ -o $@ -DWITH_IO -lpng -DNOOPT -DVERBOSE=3
+	$(CC) $(CFLAGS) $^ -o $@ -DWITH_IO -lpng -DSTEPCOUNT -DNOOPT -DVERBOSE=3
 
 $(EXEC_PAR): ivm_emu.c ivm_io.c io_handler.c list.c
 	$(CC) $(CFLAGS) $^ -o $@ -DWITH_IO -lpng -DPARALLEL_OUTPUT -pthread

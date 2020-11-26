@@ -8,10 +8,13 @@ This ivm64 emulator takes an ivm64 binary and emulates its execution. It benefit
 ### How to compile?
 
 ```
-    make # generates the next three executables
-    gcc -Ofast            ivm_emu.c # The fastest one without input/ouput but put_char
-    gcc -Ofast -DWITH_IO  ivm_emu.c ivm_io.c -lpng  # Enable IO instructions
-    gcc -Ofast -DWITH_IO  ivm_emu.c ivm_io.c io_handler.c list.c -lpng -DPARALLEL_OUTPUT -pthread # Parallel IO
+    make # generates the next six executables
+    gcc -Ofast            ivm_emu.c -o ivm_emu_fast # The fastest one without input/ouput but put_char
+    gcc -Ofast -DWITH_IO  ivm_emu.c ivm_io.c -lpng -o ivm_emu_fast_io # Enable IO instructions
+    gcc -Ofast -DWITH_IO  ivm_emu.c ivm_io.c io_handler.c list.c -lpng -DPARALLEL_OUTPUT -pthread -o ivm_emu_fast_io_parallel # Parallel IO
+    gcc -Ofast -DWITH_IO  ivm_emu.c ivm_io.c -lpng -DNOOPT -DSTEPCOUNT -DVERBOSE=1 -DHISTOGRAM -o ivm_histo
+    gcc -Ofast -DWITH_IO  ivm_emu.c ivm_io.c -lpng -DNOOPT -DSTEPCOUNT -DVERBOSE=2 -o ivm_probe
+    gcc -Ofast -DWITH_IO  ivm_emu.c ivm_io.c -lpng -DNOOPT -DSTEPCOUNT -DVERBOSE=3 -o ivm_trace
 
     # the following options are for debugging and they can make the execution slower:
     gcc -Ofast -DNOOPT     ivm_emu.c  # Disable optimizations
@@ -35,6 +38,53 @@ This ivm64 emulator takes an ivm64 binary and emulates its execution. It benefit
 Options keep compatibility with the original ivm implementation. 
 
 ```ivm_emu_fast [-m <size in bytes>] [-a <arg file>] [-i <input dir>] [-o <output dir>] <ivm_binary_file> ```
+
+
+### DEBUGGING
+
+Version v1.10 of ```ivm_emu_fast``` can be compiled to generate executables that are useful for
+debugging. Examples of this capabilities are: ```ivm_histo```, ```ivm_probe``` and ```ivm_trace```.
+
+To allow dinamically activation/deactivation of program tracing, and to extract information of
+executed instructions in a code section, the ```Yet another IVM emulator``` admits three unnused
+opcodes: 0xf0, 0xf1 and 0xf2.
+
+In directory ```samples```, a C code using this facility can be found: ```30_hanoi_probe.c```.
+This sample code includes the header ```probe.h``` which contains the macros to easily insert the
+appropiate opcodes into the C code (as if they were function calls).
+
+After this, compile the program and assemble it:
+```ivm64-gcc 30_hanoi_probe.c -o 30_hanoi_probe -DWITH_IVM64_PROBES```
+```ivm as 30_hanoi_probe```
+
+At this point, the binary contains non-standard opcodes, so it can not be executed using ```vm```.
+
+Execute the binary using Yet another IVM emulator:
+```ivm_probe 30_hanoi_probe.b```
+
+The program makes it normal execution, printing all its output and at the end, the emulator
+print the gathered information, for example:
+
+```
+Binary file size: 172315 bytes (172.3 KB)
+Executed 38070971 instructions
+
+Probe   0:      13732
+Probe   1:     180166
+Probe   2:       2936
+Probe   3:   37874142
+End stack:
+0x..000000 0
+
+```
+
+To obtain a binary without the non-standard opcodes, just compile the program without WITH_IVM64_PROBES:
+```ivm64-gcc 30_hanoi_probe.c -o 30_hanoi_probe```
+
+This way, all sentences like  ```ivm64_set_probe(1)```,```ivm64_trace_off```,```ivm64_trace_hard```,
+etc, are ignored.
+
+
 
 ### Execution times
 
