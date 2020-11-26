@@ -430,6 +430,11 @@ enum OPCODES {
 	#endif
 #endif
 
+// Break, trace and probe options
+	OPCODE_BREAK      = 0xf0,
+	OPCODE_TRACE      = 0xf1,
+	OPCODE_PROBE      = 0xf2,
+
 // native IO insn
 	OPCODE_PUT_BYTE   = 0xf9,
 	OPCODE_PUT_CHAR   = 0xfa,
@@ -733,6 +738,12 @@ ATTRIBUTE(A,XOR_1_LT,3);
 #define init_attributes_pattern_xor(A)
 #endif
 
+#define init_attributes_trace_insn(A)	\
+ATTR_NATIVE(A,BREAK,0); \
+ATTR_NATIVE(A,TRACE,1); \
+ATTR_NATIVE(A,PROBE,1);
+
+
 #define init_insn_attributes(A)	\
 	do {	\
 		init_attributes_native_insn(A);				\
@@ -755,6 +766,7 @@ ATTRIBUTE(A,XOR_1_LT,3);
 		init_attributes_pattern_push4(A);			\
 		init_attributes_pattern_lt(A);				\
 		init_attributes_pattern_xor(A);				\
+		init_attributes_trace_insn(A);				\
 	} while(0)
 
 
@@ -1033,6 +1045,11 @@ BIND_LABEL(B,XOR_1_LT);
 #define init_addr_pattern_xor(B)
 #endif
 
+#define init_addr_trace_insn(B) \
+BIND_NATIVE(B,BREAK); \
+BIND_NATIVE(B,TRACE); \
+BIND_NATIVE(B,PROBE);
+
 #define init_insn_addr(B)	\
 	do {	\
 		init_addr_native_insn(B);				\
@@ -1055,6 +1072,7 @@ BIND_LABEL(B,XOR_1_LT);
 		init_addr_pattern_push4(B);				\
 		init_addr_pattern_lt(B);				\
 		init_addr_pattern_xor(B);				\
+		init_addr_trace_insn(B);				\
 	} while(0)
 
 

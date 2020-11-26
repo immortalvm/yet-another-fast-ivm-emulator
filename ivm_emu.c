@@ -43,8 +43,8 @@
 	gcc -Ofast -DWITH_IO   ivm_emu.c ivm_io.c -lpng  # Enable IO instruction
     gcc -Ofast -DWITH_IO   ivm_emu.c ivm_io.c io_handler.c list.c -lpng -DPARALLEL_OUTPUT -pthread
     
-    gcc -Ofast -DVERBOSE=1 ivm_emu.c  # Enable verbose
-    gcc -Ofast -DVERBOSE=2 ivm_emu.c  #
+    gcc -Ofast -DVERBOSE=1 ivm_emu.c  # Enable verbose basic
+    gcc -Ofast -DVERBOSE=2 ivm_emu.c  # Enable verbose with trace insn
     gcc -Ofast -DVERBOSE=3 ivm_emu.c  #
     gcc -Ofast -DSTEPCOUNT ivm_emu.c  # Enable instruction count
     gcc -Ofast -DNOOPT     ivm_emu.c  # Disable optimizations
@@ -61,12 +61,12 @@
 // Version
 #ifdef WITH_IO
     #ifdef PARALLEL_OUTPUT
-    #define VERSION  "v1.8-fast-io-parallel"
+    #define VERSION  "v1.10-fast-io-parallel"
     #else
-    #define VERSION  "v1.8-fast-io"
+    #define VERSION  "v1.10-fast-io"
     #endif
 #else
-    #define VERSION  "v1.8-fast"
+    #define VERSION  "v1.10-fast"
 #endif
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -365,6 +365,10 @@ unsigned long histogram[256];
 unsigned long histo2[256];
 #endif
 
+#if (VERBOSE > 0)
+unsigned long samples[256];
+#endif
+
 
 // Global options
 char *opt_bycodefile = NULL;           // Binary bytecode file name
@@ -379,7 +383,7 @@ char* outDir = NULL;
 */
 int get_options(int argc, char* argv[]) {
     int i, c;
-    while ((c = getopt(argc, argv, "m:o:i:a:")) != -1) {
+    while ((c = getopt(argc, argv, "m:o:i:a:L:")) != -1) {
         switch (c) {
           case 'm': opt_maxmem = atol(optarg)>0?atol(optarg):opt_maxmem; break;
           case 'o': outDir = optarg; break;
@@ -527,7 +531,9 @@ int ivm_mem_dump(unsigned long start, unsigned long end){
     }
     fprintf(OUTPUT_MSG, "\n");
 }
+#endif
 
+#if (VERBOSE >= 2)
 /*
     Print the value of SP and the last n elements of the stack
 */
@@ -616,6 +622,15 @@ int main(int argc, char* argv[]){
     uint64_t a, b, r, u, v; // Unsigned aux. variables
     int64_t  x, y;          // Signed aux. variables 
 
+    // Trace ON/OFF through given opcodes
+    // Compile with VERBOSE to see the effect
+    #if (VERBOSE > 2)
+    uint8_t trace = 1;
+    #else
+    uint8_t trace = 0;
+    #endif
+    uint8_t probe = 0;
+
     char *filename;
 
     fprintf(OUTPUT_MSG, "Yet another ivm emulator, %s\n", VERSION);
@@ -690,9 +705,9 @@ int main(int argc, char* argv[]){
     SP = idx2addr(MemBytes - BYTESPERWORD); 
 
     #if (VERBOSE == 2)
-        #define VERBOSE_ACTION do{ print_insn(PC-1);} while(0) 
+        #define VERBOSE_ACTION do{ samples[probe]++; if (trace) print_insn(PC-1); if (trace>1) print_stack_status();} while(0) 
     #elif (VERBOSE >= 3)
-        #define VERBOSE_ACTION do{ print_insn(PC-1); print_stack_status();} while(0) 
+        #define VERBOSE_ACTION do{ samples[probe]++; print_insn(PC-1); print_stack_status();} while(0) 
     #else
         #define VERBOSE_ACTION 
     #endif
@@ -2127,7 +2142,32 @@ int main(int argc, char* argv[]){
     PUT_CHAR: ioPutChar(pop()); NEXT;
     PUT_BYTE: ioPutByte(pop()); NEXT;
 	#endif
-	
+
+    //-----------------
+    BREAK:
+        #if (VERBOSE >= 2)
+        getchar();
+        #endif
+        #if (VERBOSE<3)
+        STEPCOUNT_ACTION(-1);
+        #endif
+        NEXT;
+    TRACE:
+        next1 = *((uint8_t*)PC);
+        PC+=1;
+        trace = next1;
+        #if (VERBOSE<3)
+        STEPCOUNT_ACTION(-1);
+        #endif
+        NEXT;
+    PROBE:
+        probe = *((uint8_t*)PC);
+        PC+=1;
+        #if (VERBOSE<3)
+        STEPCOUNT_ACTION(-1);
+        #endif
+        NEXT;
+    //-----------------
 
     HALT:
 
@@ -2170,6 +2210,14 @@ int main(int argc, char* argv[]){
                     histogram[i], insn_attributes[i].name,
                     (double)histogram[i]/fetchs*100, histo2[i],
                     histo2[i]?(double)histogram[i]/histo2[i]:histogram[i]);
+        }
+    }
+    #endif
+
+    #if (VERBOSE >= 2)
+    for (int i=0; i < 256; i++) {
+        if (samples[i] > 0) {
+            printf("Probe %3d: %10ld\n", i, samples[i]);
         }
     }
     #endif
