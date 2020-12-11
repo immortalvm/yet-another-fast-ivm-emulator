@@ -61,12 +61,12 @@
 // Version
 #ifdef WITH_IO
     #ifdef PARALLEL_OUTPUT
-    #define VERSION  "v1.10-fast-io-parallel"
+    #define VERSION  "v1.12-fast-io-parallel"
     #else
-    #define VERSION  "v1.10-fast-io"
+    #define VERSION  "v1.12-fast-io"
     #endif
 #else
-    #define VERSION  "v1.10-fast"
+    #define VERSION  "v1.12-fast"
 #endif
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -80,7 +80,7 @@
 
 ////////////////////////////////////////////////////////////////////////////////
 // The FOLLOWING is only available if OPTENABLED==1
-// defines before include emulator header file
+// macros definition before include emulator header file 'ivm_emu.h'
 //
 //        //////////////////////////////////
 //        //                              //
@@ -215,18 +215,21 @@
     #define FAST_POP2_INSN   2
 #endif
 #ifdef PATTERN_PUSH0
-    #define SHORT_JUMP_INSN  2
+    #define SHORT_JUMPF_INSN 2
+    #define SHORT_JUMPB_INSN 2
     #define XOR_0_INSN       2
-    #define NOT_0_MUL_INSN   0
+    #define NOT_0_MUL_INSN   2
     #define PUSH0X2_INSN     2
     #define PUSH0X3_INSN     2
     #define PUSH0X4_INSN     2
 #endif
 #ifdef PATTERN_PUSH1_ALU
-    #define LT_1_JZ_INSN     2
-    #define NOT_1_ADD_INSN   0
-    #define LT_1_NOT_INSN    0
-    #define LT_1_JNZ_INSN    0
+    #define LT_1_JZF_INSN    2
+    #define LT_1_JZB_INSN    2
+    #define NOT_1_ADD_INSN   2
+    #define LT_1_NOT_INSN    2
+    #define LT_1_JNZF_INSN   2
+    #define LT_1_JNZB_INSN   2
 #endif
 #ifdef PATTERN_PUSH1_POW2
     #define POW2_1_ADD_INSN  2
@@ -237,7 +240,7 @@
 #endif
 #ifdef PATTERN_PUSH1N
     #define PUSH1X2_INSN     2
-    #define PUSH1X4_INSN     1
+    #define PUSH1X4_INSN     2
 #endif
 #ifdef PATTERN_PUSH1_HIGH4
     #define C1TOSTACK1_INSN  2
@@ -248,7 +251,7 @@
 #endif
 #ifdef PATTERN_PUSH2
     #define JUMP_PC_2_INSN   2
-    #define C2TOSTACK1_INSN  0
+    #define C2TOSTACK1_INSN  1
     #define C2TOSTACK2_INSN  2
     #define C2TOSTACK4_INSN  2
     #define C2TOSTACK8_INSN  2
@@ -257,8 +260,10 @@
     #define JUMP_PC_4_INSN   2
 #endif
 #ifdef PATTERN_LT
-    #define LT_JZ_INSN       2
-    #define LT_NOT_JZ_INSN   2
+    #define LT_JZF_INSN      2
+    #define LT_NOT_JZF_INSN  2
+    #define LT_JZB_INSN      2
+    #define LT_NOT_JZB_INSN  2
 #endif
 #ifdef PATTERN_XOR
     #define XOR_1_LT_INSN    2
@@ -365,9 +370,7 @@ unsigned long histogram[256];
 unsigned long histo2[256];
 #endif
 
-#if (VERBOSE > 0)
-unsigned long samples[256];
-#endif
+
 
 
 // Global options
@@ -613,12 +616,6 @@ int main(int argc, char* argv[]){
     uint32_t next4;
     uint64_t next8;
 
-
-    
-    // Instruction operand (signed, only for jump offset)
-    int8_t  next1s;
-    int64_t offset; // offset for jump_zero (signed)
-
     uint64_t a, b, r, u, v; // Unsigned aux. variables
     int64_t  x, y;          // Signed aux. variables 
 
@@ -630,10 +627,12 @@ int main(int argc, char* argv[]){
     uint8_t trace = 0;
     #endif
     uint8_t probe = 0;
+    uint8_t read_probe;
 
     char *filename;
 
     fprintf(OUTPUT_MSG, "Yet another ivm emulator, %s\n", VERSION);
+    fprintf(OUTPUT_MSG, "Compatible with ivm-0.37\n");
     char *str = "Compiled with:";
     #if (VERBOSE>0)
         fprintf(OUTPUT_MSG, "%s -DVERBOSE=%d", str, VERBOSE);
@@ -705,9 +704,9 @@ int main(int argc, char* argv[]){
     SP = idx2addr(MemBytes - BYTESPERWORD); 
 
     #if (VERBOSE == 2)
-        #define VERBOSE_ACTION do{ samples[probe]++; if (trace) print_insn(PC-1); if (trace>1) print_stack_status();} while(0) 
+        #define VERBOSE_ACTION do{ if (trace>1) print_stack_status(); if (trace) print_insn(PC-1);} while(0)
     #elif (VERBOSE >= 3)
-        #define VERBOSE_ACTION do{ samples[probe]++; print_insn(PC-1); print_stack_status();} while(0) 
+        #define VERBOSE_ACTION do{ print_stack_status(); print_insn(PC-1);} while(0)
     #else
         #define VERBOSE_ACTION 
     #endif
@@ -725,8 +724,10 @@ int main(int argc, char* argv[]){
     #endif
 
     #ifdef STEPCOUNT
-        unsigned long steps = 0, fetchs = 0; // Instruction/fetch count
-        #define STEPCOUNT_ACTION(n)  do{steps+=n;}while(0)
+        unsigned long fetchs = 0;   // Fetch count
+        unsigned long samples[256]; // Instruction count
+        bzero(samples, 256*sizeof(unsigned long));
+        #define STEPCOUNT_ACTION(n)  do{samples[probe]+=n;}while(0)
         #define FETCHCOUNT_ACTION    do{fetchs++;}while(0)
     #else 
         #define STEPCOUNT_ACTION(n)
@@ -784,10 +785,12 @@ int main(int argc, char* argv[]){
     NOP: 
     #if OPTENABLED
         #ifdef PATTERN_NOPN
+        #define PATTERN_NOP2_CODE (OPCODE_NOP<<8 | OPCODE_NOP)
+        #define PATTERN_NOP4_CODE (PATTERN_NOP2_CODE<<16 | PATTERN_NOP2_CODE)
             #if (NOP4_INSN > 0 || NOP8_INSN > 0)
-            if (opcode4 == 0x01010101) {
+            if (opcode4 == PATTERN_NOP4_CODE) {
                 #if (NOP8_INSN > 0)
-                if (*(uint32_t*)(PC+3) == 0x01010101) {
+                if (*(uint32_t*)(PC+3) == PATTERN_NOP4_CODE) {
                     RECODE(NOP8);    // NOP/NOP/NOP/NOP/NOP/NOP/NOP/NOP
                     PC+=7; STEPCOUNT_ACTION(7); NEXT;
                 } else
@@ -805,7 +808,7 @@ int main(int argc, char* argv[]){
             } else
             #endif
             #if (NOP2_INSN > 0)
-            if (opcode4 == 0x0101) {
+            if (opcode4 == PATTERN_NOP2_CODE ) {
                 RECODE(NOP2);    // NOP/NOP
                 PC+=1; STEPCOUNT_ACTION(1); NEXT;
             } else
@@ -823,13 +826,21 @@ int main(int argc, char* argv[]){
         PC = (char*)a;
         NEXT;
     //-----------------
-    JUMP_ZERO:
-        next1s = *((int8_t*)PC);
+    JZ_FWD:
+        next1 = *((uint8_t*)PC);
         PC+=1;
-        offset = next1s;
         a = pop();
         if (a == 0){
-            PC = (char*)((uint64_t)PC + offset); 
+            PC += next1;
+        }
+        NEXT;
+    //-----------------
+    JZ_BACK:
+        next1 = *((uint8_t*)PC);
+        PC+=1;
+        a = pop();
+        if (a == 0){
+            PC -= next1 + 1;
         }
         NEXT;
     //-----------------
@@ -840,7 +851,9 @@ int main(int argc, char* argv[]){
     GET_PC:
     #if OPTENABLED
         #ifdef PATTERN_GETPC_PUSH1_ADD
-        if (0x020000800 == (opcode4 & 0x0ff00ff00)){
+        #define PATTERN_GETPC_PUSH1_ADD_CODE (OPCODE_ADD<<24 | OPCODE_PUSH1<<8)
+        #define PATTERN_GETPC_PUSH1_ADD_MASK (0xff<<24 | 0xff<<8)
+        if (PATTERN_GETPC_PUSH1_ADD_CODE == (opcode4 & PATTERN_GETPC_PUSH1_ADD_MASK)){
             switch (*(uint8_t*)(PC+3)) {
                 #if (PC_1_NOP_INSN > 0)
                 case OPCODE_NOP:
@@ -936,7 +949,9 @@ int main(int argc, char* argv[]){
         } else
         #endif
         #ifdef PATTERN_GETPC_PUSH2_ADD
-        if (0x0900 == (opcode4 & 0x0ff00)){
+        #define PATTERN_GETPC_PUSH2_ADD_CODE (OPCODE_PUSH2<<8)
+        #define PATTERN_GETPC_PUSH2_ADD_MASK (0xff<<8)
+        if (PATTERN_GETPC_PUSH2_ADD_CODE == (opcode4 & PATTERN_GETPC_PUSH2_ADD_MASK)){
             switch (*(uint16_t*)(PC+3)) {
                 #if (LD1_PC_2_INSN > 0)
                 case (OPCODE_LOAD1<<8)|OPCODE_ADD:
@@ -1024,7 +1039,9 @@ int main(int argc, char* argv[]){
         } else
         #endif
         #ifdef PATTERN_GETPC_PUSH4_ADD
-        if (0x0a00==(opcode4 & 0x0ff00)) {
+        #define PATTERN_GETPC_PUSH4_ADD_CODE (OPCODE_PUSH4<<8)
+        #define PATTERN_GETPC_PUSH4_ADD_MASK (0xff<<8)
+        if (PATTERN_GETPC_PUSH4_ADD_CODE==(opcode4 & PATTERN_GETPC_PUSH4_ADD_MASK)) {
             switch (*(uint16_t*)(PC+5)) {
                 #if (LD1_PC_4_INSN > 0)
                 case (OPCODE_LOAD1<<8)|OPCODE_ADD:
@@ -1112,7 +1129,9 @@ int main(int argc, char* argv[]){
         } else
         #endif
         #ifdef PATTERN_GETPC_PUSH8_ADD
-        if (0x0b00==(opcode4 & 0x0ff00)) {
+        #define PATTERN_GETPC_PUSH8_ADD_CODE (OPCODE_PUSH8<<8)
+        #define PATTERN_GETPC_PUSH8_ADD_MASK (0xff<<8)
+        if (PATTERN_GETPC_PUSH8_ADD_CODE==(opcode4 & PATTERN_GETPC_PUSH8_ADD_MASK)) {
             switch (*(uint16_t*)(PC+9)) {
                 #if (LD1_PC_8_INSN > 0)
                 case (OPCODE_LOAD1<<8)|OPCODE_ADD:
@@ -1212,7 +1231,9 @@ int main(int argc, char* argv[]){
     GET_SP:
     #if OPTENABLED
         #ifdef PATTERN_GETSP_PUSH1_ADD
-        if (0x020000800 == (opcode4 & 0x0ff00ff00)) {
+        #define PATTERN_GETSP_PUSH1_ADD_CODE (OPCODE_ADD<<24 | OPCODE_PUSH1<<8)
+        #define PATTERN_GETSP_PUSH1_ADD_MASK (0xff<<24 | 0xff<<8)
+        if (PATTERN_GETSP_PUSH1_ADD_CODE == (opcode4 & PATTERN_GETSP_PUSH1_ADD_MASK)) {
             switch (*(uint8_t*)(PC+3)) {
                 #if (ST8_SP_1_INSN > 0)
                 case OPCODE_STORE8:
@@ -1298,9 +1319,9 @@ int main(int argc, char* argv[]){
             }    
         } else
         #endif
-        #ifdef PATTERN_GETSP_PUSH1
+        #ifdef PATTERN_GETSP_PUSH1       
         #if (DEC_SP_1_INSN > 0)
-        if ((0x2a000800 == (opcode4 & 0x0ff00ff00)) &&
+        if (((OPCODE_NOT<<24 | OPCODE_PUSH1<<8) == (opcode4 & 0x0ff00ff00)) &&
             (*(uint16_t*)(PC+3)==(OPCODE_SET_SP<<8|OPCODE_ADD))) {
             RECODE(DEC_SP_1);
             next1 = opcode4 >> 16;
@@ -1310,7 +1331,7 @@ int main(int argc, char* argv[]){
         } else
         #endif
         #if (SP_1_INSN > 0)
-        if (0x0800 == (opcode4 & 0x0ff00)) { // not followed by add
+        if (OPCODE_PUSH1<<8 == (opcode4 & 0x0ff00)) { // not followed by add
             RECODE(SP_1);    // get_sp/push1
             push((WORD_T)SP);
             next1 = opcode4 >> 16;
@@ -1320,7 +1341,7 @@ int main(int argc, char* argv[]){
         #endif
         #endif
         #ifdef PATTERN_GETSP_PUSH2_ADD
-        if (0x0900 == (opcode4 & 0x0ff00)) {
+        if (OPCODE_PUSH2<<8 == (opcode4 & 0x0ff00)) {
             switch (*(uint16_t*)(PC+3)) {
                 #if (ST8_SP_2_INSN > 0)
                 case (OPCODE_STORE8<<8)|OPCODE_ADD:
@@ -1401,9 +1422,9 @@ int main(int argc, char* argv[]){
         } else
         #endif
         #ifdef PATTERN_GETSP_STORE
-        if (0x1400 == (opcode4 & 0x0fc00)) { // 20, 21, 22, 23
+        if (OPCODE_STORE1<<8 == (opcode4 & 0x0fc00)) { // 20, 21, 22, 23
             #if (FAST_POP2_INSN > 0)
-            if (0x14060000 == (opcode4 & 0x0fcff0000)) {
+            if ((OPCODE_STORE1<<24 | OPCODE_GET_SP<<16) == (opcode4 & 0x0fcff0000)) {
                 RECODE(FAST_POP2);
                 SP+=16;
                 PC+=3; STEPCOUNT_ACTION(3); NEXT;
@@ -1436,22 +1457,30 @@ int main(int argc, char* argv[]){
     PUSH0:
     #if OPTENABLED
         #ifdef PATTERN_PUSH0
-        #if (SHORT_JUMP_INSN > 0)
-        if (0x00300 == (opcode4 & 0x0ff00)){
-            RECODE(SHORT_JUMP);    // PUSH0/JUMP_ZERO
-            next1s = opcode4 >> 16; 
-            PC = (char*)((uint64_t)PC + (int64_t)next1s + 2);
+        #if (SHORT_JUMPF_INSN > 0)
+        if (OPCODE_JZ_FWD<<8 == (opcode4 & 0x0ff00)){
+            RECODE(SHORT_JUMPF);    // PUSH0/JZ_FWD
+            next1 = opcode4 >> 16;
+            PC += next1 + 2;
+            STEPCOUNT_ACTION(1); NEXT;
+        } else
+        #endif
+        #if (SHORT_JUMPB_INSN > 0)
+        if (OPCODE_JZ_BACK<<8 == (opcode4 & 0x0ff00)){
+            RECODE(SHORT_JUMPB);    // PUSH0/JZ_FWD
+            next1 = opcode4 >> 16;
+            PC -= next1 - 1;
             STEPCOUNT_ACTION(1); NEXT;
         } else
         #endif
         #if (XOR_0_INSN > 0)
-        if (0x002b00 == (opcode4 & 0x00ff00)) { // PUSH0/XOR = NOP
+        if (OPCODE_XOR<<8 == (opcode4 & 0x00ff00)) { // PUSH0/XOR = NOP
             RECODE(XOR_0);    // push0/xor
             PC++; STEPCOUNT_ACTION(1); NEXT;
         } else
         #endif
         #if (NOT_0_MUL_INSN > 0)
-        if (0x212a00 == (opcode4 & 0x0ffff00)) { // *(-1)
+        if ((OPCODE_MUL<<16 | OPCODE_NOT<<8) == (opcode4 & 0x0ffff00)) { // *(-1)
             RECODE(NOT_0_MUL);    // push0/not/mul
             u=pop();
             push(~u+1);
@@ -1459,7 +1488,7 @@ int main(int argc, char* argv[]){
         } else
         #endif
         #if (PUSH0X4_INSN > 0)
-        if (0x07070700 == (opcode4 & 0x0ffffff00)) {
+        if ((OPCODE_PUSH0<<24 | OPCODE_PUSH0<<16 | OPCODE_PUSH0<<8) == (opcode4 & 0x0ffffff00)) {
             RECODE(PUSH0X4);    // push0/push0/push0/push0
             SP-=BYTESPERWORD*4;
             *((WORD_T*)SP)=(WORD_T)0;
@@ -1470,7 +1499,7 @@ int main(int argc, char* argv[]){
         } else
         #endif
         #if (PUSH0X3_INSN > 0)
-        if (0x070700 == (opcode4 & 0x0ffff00)) {
+        if ((OPCODE_PUSH0<<16 | OPCODE_PUSH0<<8) == (opcode4 & 0x0ffff00)) {
             RECODE(PUSH0X3);    // push0/push0/push0
             SP-=BYTESPERWORD*3;
             *((WORD_T*)SP)=(WORD_T)0;
@@ -1480,7 +1509,7 @@ int main(int argc, char* argv[]){
         } else
         #endif
         #if (PUSH0X2_INSN > 0)
-        if (0x0700 == (opcode4 & 0x0ff00)) {
+        if (OPCODE_PUSH0<<8 == (opcode4 & 0x0ff00)) {
             RECODE(PUSH0X2);    // push0/push0
             SP-=BYTESPERWORD*2;
             *((WORD_T*)SP)=(WORD_T)0;
@@ -1502,7 +1531,7 @@ int main(int argc, char* argv[]){
     PUSH1:
     #if OPTENABLED
         #ifdef PATTERN_PUSH1_POW2
-        if (0x2c0000 == (opcode4 & 0x0ff0000)){
+        if (OPCODE_POW2<<16 == (opcode4 & 0x0ff0000)){
             uint32_t nextopcode = (opcode4 & 0x0ff000000);
             switch (nextopcode) {
                 #if (POW2_1_ADD_INSN > 0)
@@ -1565,9 +1594,9 @@ int main(int argc, char* argv[]){
         } else
         #endif
         #ifdef PATTERN_PUSH1_ALU
-        #if (LT_1_JZ_INSN > 0)
-        if (0x03240000 == (opcode4 & 0x0ffff0000)){
-            RECODE(LT_1_JZ);    // PUSH1/LT/JUMP_ZERO
+        #if (LT_1_JZF_INSN > 0)
+        if ((OPCODE_JZ_FWD<<24 | OPCODE_LT<<16) == (opcode4 & 0x0ffff0000)){
+            RECODE(LT_1_JZF);    // PUSH1/LT/JZ_FWD
             next1 = opcode4 >> 8; 
             u = next1; 
             v = pop();
@@ -1575,17 +1604,33 @@ int main(int argc, char* argv[]){
             if (v < u) {
                 PC+=4; NEXT;
             } else {
-                next1s =*(PC+3);
-                PC = (char*)((uint64_t)PC + (int64_t)next1s + 4);
+                next1 =*(PC+3);
+                PC += next1 + 4;
                 NEXT;
             }
         } else
         #endif
-        #if ((LT_1_NOT_INSN > 0) || (LT_1_JNZ_INSN > 0))
-        if (0x2a240000 == (opcode4 & 0x0ffff0000)){
-            #if (LT_1_JNZ_INSN > 0)
-            if (*(uint8_t*)(PC+3) == OPCODE_JUMP_ZERO) {
-                RECODE(LT_1_JNZ);    // PUSH1/LT/NOT/JUMP_ZERO
+        #if (LT_1_JZB_INSN > 0)
+        if ((OPCODE_JZ_BACK<<24 | OPCODE_LT<<16) == (opcode4 & 0x0ffff0000)){
+            RECODE(LT_1_JZB);    // PUSH1/LT/JZ_BACK
+            next1 = opcode4 >> 8; 
+            u = next1; 
+            v = pop();
+            STEPCOUNT_ACTION(2);
+            if (v < u) {
+                PC+=4; NEXT;
+            } else {
+                next1 =*(PC+3);
+                PC -= next1 - 3;
+                NEXT;
+            }
+        } else
+        #endif
+        #if ((LT_1_NOT_INSN > 0) || (LT_1_JNZF_INSN > 0))
+        if ((OPCODE_NOT<<24 | OPCODE_LT<<16) == (opcode4 & 0x0ffff0000)){
+            #if (LT_1_JNZF_INSN > 0)
+            if (*(uint8_t*)(PC+3) == OPCODE_JZ_FWD) {
+                RECODE(LT_1_JNZF);    // PUSH1/LT/NOT/JZ_FWD
                 next1 = opcode4 >> 8; 
                 u = next1; 
                 v = pop();
@@ -1593,8 +1638,24 @@ int main(int argc, char* argv[]){
                 if (v >= u) {
                     PC+=5; NEXT;
                 } else {
-                    next1s =*(PC+4);
-                    PC = (char*)((uint64_t)PC + (int64_t)next1s + 5);
+                    next1 =*(PC+4);
+                    PC = (char*)((uint64_t)PC + (int64_t)next1 + 5);
+                    NEXT;
+                }
+            } else
+            #endif
+            #if (LT_1_JNZB_INSN > 0)
+            if (*(uint8_t*)(PC+3) == OPCODE_JZ_BACK) {
+                RECODE(LT_1_JNZB);    // PUSH1/LT/NOT/JZ_FWD
+                next1 = opcode4 >> 8; 
+                u = next1; 
+                v = pop();
+                STEPCOUNT_ACTION(2);
+                if (v >= u) {
+                    PC+=5; NEXT;
+                } else {
+                    next1 =*(PC+4);
+                    PC -= next1 - 4;
                     NEXT;
                 }
             } else
@@ -1619,7 +1680,7 @@ int main(int argc, char* argv[]){
         } else
         #endif
         #if (NOT_1_ADD_INSN > 0)
-        if (0x202a0000 == (opcode4 & 0x0ffff0000)){
+        if ((OPCODE_ADD<<24 | OPCODE_NOT<<16) == (opcode4 & 0x0ffff0000)){
             RECODE(NOT_1_ADD);    // PUSH1/NOT/ADD
             next1 = opcode4 >> 8;
             u = next1;
@@ -1631,12 +1692,14 @@ int main(int argc, char* argv[]){
         #endif
         #ifdef PATTERN_PUSH1N
         #if (PUSH1X4_INSN > 0 || PUSH1X2_INSN > 0)
-        if (0x00080000 == (opcode4 & 0x000ff0000)) {
+        if (OPCODE_PUSH1<<16 == (opcode4 & 0x0ff<<16)) {
             #if (PUSH1X4_INSN > 0)
             high4=*(uint32_t*)(PC+3);
-            if (0x00080008 == (high4 & 0x000ff00ff)) {
+            if ((OPCODE_PUSH1<<16 | OPCODE_PUSH1) == (high4 & 0x000ff00ff)) {
                 RECODE(PUSH1X4); // PUSH1/PUSH1/PUSH1/PUSH1
+                #if (PUSH1X4_INSN == 2)
                 high4=*(uint32_t*)(PC+3);
+                #endif
                 next1 = opcode4 >> 8;
                 push((WORD_T)next1);
                 next1 = opcode4 >> 24;
@@ -1648,7 +1711,7 @@ int main(int argc, char* argv[]){
                 PC+=7;
                 STEPCOUNT_ACTION(3);
                 for (opcode4 = *(uint32_t*)PC;
-                    (opcode4 & 0x000ff00ff)==0x00080008;
+                    (opcode4 & 0x000ff00ff)==(OPCODE_PUSH1<<16 | OPCODE_PUSH1);
                     PC+=4, opcode4 = *(uint32_t*)PC) {
                     push((WORD_T)*(uint8_t*)(PC+1));
                     push((WORD_T)*(uint8_t*)(PC+3));
@@ -1695,7 +1758,8 @@ int main(int argc, char* argv[]){
             high4=*(uint32_t*)(PC+3);
             opcode8 = ((uint64_t)high4 << 32)|opcode4;
             #if (C1TOSTACK8_INSN > 0)
-            if (0x17200008060000 == (opcode8 & 0x0ffff00ffff0000)){
+            if ((1UL*OPCODE_STORE8<<48 | 1UL*OPCODE_ADD<<40 | OPCODE_PUSH1<<24 | OPCODE_GET_SP<<16)
+                == (opcode8 & 0x0ffff00ffff0000)){
                 RECODE(C1TOSTACK8); // PUSH1/GET_SP/PUSH1/ADD/STORE8
                 next1_val = opcode4 >> 8;
                 next1_addr =*(PC+3);
@@ -1705,7 +1769,8 @@ int main(int argc, char* argv[]){
             } else
             #endif
             #if (C1TOSTACK4_INSN > 0)
-            if (0x16200008060000 == (opcode8 & 0x0ffff00ffff0000)){
+            if ((1UL*OPCODE_STORE4<<48 | 1UL*OPCODE_ADD<<40 | OPCODE_PUSH1<<24 | OPCODE_GET_SP<<16)
+                == (opcode8 & 0x0ffff00ffff0000)){
                 RECODE(C1TOSTACK4);    // PUSH1/GET_SP/PUSH1/ADD/STORE4
                 next1_val = opcode4 >> 8;
                 next1_addr = *(PC+3);
@@ -1715,7 +1780,8 @@ int main(int argc, char* argv[]){
             } else
             #endif
             #if (C1TOSTACK2_INSN > 0)
-            if (0x15200008060000 == (opcode8 & 0x0ffff00ffff0000)){
+            if ((1UL*OPCODE_STORE2<<48 | 1UL*OPCODE_ADD<<40 | OPCODE_PUSH1<<24 | OPCODE_GET_SP<<16)
+                == (opcode8 & 0x0ffff00ffff0000)){
                 RECODE(C1TOSTACK2);    // PUSH1/GET_SP/PUSH1/ADD/STORE2
                 next1_val = opcode4 >> 8;
                 next1_addr = *(PC+3);
@@ -1725,7 +1791,8 @@ int main(int argc, char* argv[]){
             } else
             #endif
             #if (C1TOSTACK1_INSN > 0)
-            if (0x14200008060000 == (opcode8 & 0x0ffff00ffff0000)){
+            if ((1UL*OPCODE_STORE1<<48 | 1UL*OPCODE_ADD<<40 | OPCODE_PUSH1<<24 | OPCODE_GET_SP<<16)
+                == (opcode8 & 0x0ffff00ffff0000)){
                 RECODE(C1TOSTACK1);    // PUSH1/GET_SP/PUSH1/ADD/STORE1
                 next1_val = opcode4 >> 8; 
                 next1_addr = *(PC+3); 
@@ -1735,7 +1802,7 @@ int main(int argc, char* argv[]){
             } else
             #endif
             #if (JUMP_PC_1_INSN > 0)
-            if (0x0220050000 == (opcode8 & 0x0ffffff0000)){
+            if ((1UL*OPCODE_JUMP<<32 | OPCODE_ADD<<24 | OPCODE_GET_PC<<16) == (opcode8 & 0x0ffffff0000)){
                 RECODE(JUMP_PC_1);    // PUSH1/GET_PC/ADD/JUMP
                 next1 = opcode4 >> 8;
                 PC += (WORD_T)next1 + 2;
@@ -1776,7 +1843,7 @@ int main(int argc, char* argv[]){
         high4=*(uint32_t*)(PC+3);
         opcode8 = ((uint64_t)high4 << 32)|opcode4;
         #if (JUMP_PC_2_INSN > 0)
-        if (0x022005000000 == (opcode8 & 0x0ffffff000000)){
+        if ((1UL*OPCODE_JUMP<<32 | OPCODE_ADD<<24 | OPCODE_GET_PC<<16) == (opcode8 & 0x0ffffff000000)){
             RECODE(JUMP_PC_2);    // PUSH2/GET_PC/ADD/JUMP
             next2 = opcode4 >> 8;
             PC += (WORD_T)next2 + 3;
@@ -1784,7 +1851,8 @@ int main(int argc, char* argv[]){
         } else
         #endif
         #if (C2TOSTACK8_INSN > 0)
-        if (0x1720000806000000 == (opcode8 & 0x0ffff00ffff000000)) {
+        if ((1UL*OPCODE_STORE8<<56 | 1UL*OPCODE_ADD<<48 | 1UL*OPCODE_PUSH1<<32 | OPCODE_GET_SP<<24)
+            == (opcode8 & 0x0ffff00ffff000000)) {
             RECODE(C2TOSTACK8);    // PUSH2/GET_SP/PUSH1/ADD/STORE8
             next2_val = opcode4 >> 8; 
             next2_addr = *(PC+4); 
@@ -1795,7 +1863,8 @@ int main(int argc, char* argv[]){
         } else
         #endif
         #if (C2TOSTACK4_INSN > 0)
-        if (0x1620000806000000 == (opcode8 & 0x0ffff00ffff000000)) {
+        if ((1UL*OPCODE_STORE4<<56 | 1UL*OPCODE_ADD<<48 | 1UL*OPCODE_PUSH1<<32 | OPCODE_GET_SP<<24)
+            == (opcode8 & 0x0ffff00ffff000000)) {
             RECODE(C2TOSTACK4);    // PUSH2/GET_SP/PUSH1/ADD/STORE4
             next2_val = opcode4 >> 8; 
             next2_addr = *(PC+4); 
@@ -1806,7 +1875,8 @@ int main(int argc, char* argv[]){
         } else
         #endif
         #if (C2TOSTACK2_INSN > 0)
-        if (0x1520000806000000 == (opcode8 & 0x0ffff00ffff000000)) {
+        if ((1UL*OPCODE_STORE2<<56 | 1UL*OPCODE_ADD<<48 | 1UL*OPCODE_PUSH1<<32 | OPCODE_GET_SP<<24)
+            == (opcode8 & 0x0ffff00ffff000000)) {
             RECODE(C2TOSTACK2);    // PUSH2/GET_SP/PUSH1/ADD/STORE2
             next2_val = opcode4 >> 8; 
             next2_addr = *(PC+4); 
@@ -1817,7 +1887,8 @@ int main(int argc, char* argv[]){
         } else
         #endif
         #if (C2TOSTACK1_INSN > 0)
-        if (0x1420000806000000 == (opcode8 & 0x0ffff00ffff000000)) {
+        if ((1UL*OPCODE_STORE1<<56 | 1UL*OPCODE_ADD<<48 | 1UL*OPCODE_PUSH1<<32 | OPCODE_GET_SP<<24)
+            == (opcode8 & 0x0ffff00ffff000000)) {
             RECODE(C2TOSTACK1);    // PUSH2/GET_SP/PUSH1/ADD/STORE1
             next2_val = opcode4 >> 8; 
             next2_addr = *(PC+4); 
@@ -1846,7 +1917,7 @@ int main(int argc, char* argv[]){
         #ifdef PATTERN_PUSH4
         #if (JUMP_PC_4_INSN > 0)
         high4=*(uint32_t*)(PC+3);
-        if (0x02200500 == (high4 & 0x0ffffff00)){
+        if ((OPCODE_JUMP<<24 | OPCODE_ADD<<16 | OPCODE_GET_PC<<8) == (high4 & 0x0ffffff00)){
             RECODE(JUMP_PC_4);    // PUSH2/GET_PC/ADD/JUMP
             next4 = *(uint32_t*)PC;
             PC += next4 + 5;
@@ -1872,19 +1943,6 @@ int main(int argc, char* argv[]){
         next8 = *((uint64_t*)PC);
         push((WORD_T)next8);
         PC+=8;
-        NEXT;
-    //-----------------
-    SIGX1:
-        x = pop();
-        push((int64_t)((int8_t)(x & (BITMASK8))));
-        NEXT;
-    SIGX2:
-        x = pop();
-        push((int64_t)((int16_t)(x & (BITMASK16))));
-        NEXT;
-    SIGX4:
-        x = pop();
-        push((int64_t)((int32_t)(x & (BITMASK32))));
         NEXT;
     //-----------------
     LOAD1:
@@ -1949,9 +2007,9 @@ int main(int argc, char* argv[]){
     LT:
     #if OPTENABLED
         #ifdef PATTERN_LT
-        #if (LT_JZ_INSN > 0)
-        if (0x000300 == (opcode4 & 0x00ff00)){
-            RECODE(LT_JZ);    // LT/JZ
+        #if (LT_JZF_INSN > 0)
+        if (OPCODE_JZ_FWD<<8 == (opcode4 & 0x00ff00)){
+            RECODE(LT_JZF);    // LT/JZF
             u = pop();
             v = pop();
             STEPCOUNT_ACTION(1);
@@ -1959,21 +2017,53 @@ int main(int argc, char* argv[]){
                 PC+=2;
                 NEXT;
             } else {
-                next1s = opcode4 >> 16; 
-                PC = (char*)((uint64_t)PC + (int64_t)next1s + 2);
+                next1 = opcode4 >> 16; 
+                PC += next1 + 2;
                 NEXT;
             }
         } else
         #endif
-        #if (LT_NOT_JZ_INSN > 0)
-        if (0x00032a00 == (opcode4 & 0x00ffff00)){
-            RECODE(LT_NOT_JZ);    // LT/NOT/JZ
+        #if (LT_NOT_JZF_INSN > 0)
+        if ((OPCODE_JZ_FWD<<16 | OPCODE_NOT<<8) == (opcode4 & 0x00ffff00)){
+            RECODE(LT_NOT_JZF);    // LT/NOT/JZF
             u = pop();
             v = pop();
             STEPCOUNT_ACTION(2);            
             if (v < u) {
-                next1s = opcode4 >> 24; 
-                PC = (char*)((uint64_t)PC + (int64_t)next1s + 3);
+                next1 = opcode4 >> 24; 
+                PC += next1 + 3;
+                NEXT;
+            } else {
+                PC+=3;
+                NEXT;
+            }
+        } else
+        #endif
+        #if (LT_JZB_INSN > 0)
+        if (OPCODE_JZ_BACK<<8 == (opcode4 & 0x00ff00)){
+            RECODE(LT_JZB);    // LT/JZB
+            u = pop();
+            v = pop();
+            STEPCOUNT_ACTION(1);
+            if (v < u) {
+                PC+=2;
+                NEXT;
+            } else {
+                next1 = opcode4 >> 16; 
+                PC -= next1 - 1;
+                NEXT;
+            }
+        } else
+        #endif
+        #if (LT_NOT_JZB_INSN > 0)
+        if ((OPCODE_JZ_BACK<<16 | OPCODE_NOT<<8) == (opcode4 & 0x00ffff00)){
+            RECODE(LT_NOT_JZB);    // LT/NOT/JZB
+            u = pop();
+            v = pop();
+            STEPCOUNT_ACTION(2);            
+            if (v < u) {
+                next1 = opcode4 >> 24; 
+                PC -= next1 - 2;
                 NEXT;
             } else {
                 PC+=3;
@@ -2028,7 +2118,7 @@ int main(int argc, char* argv[]){
     #if OPTENABLED
         #ifdef PATTERN_XOR
         #if (XOR_1_LT_INSN > 0)
-        if (0x24000800 == (opcode4 & 0x0ff00ff00)){
+        if ((OPCODE_LT<<24 | OPCODE_PUSH1<<8) == (opcode4 & 0x0ff00ff00)){
             RECODE(XOR_1_LT);    // XOR/PUSH1/LT
             next1 = opcode4 >> 16; 
             u = pop();
@@ -2167,6 +2257,16 @@ int main(int argc, char* argv[]){
         STEPCOUNT_ACTION(-1);
         #endif
         NEXT;
+    PROBE_READ:
+        read_probe = pop();
+        a = pop();
+        #ifdef STEPCOUNT
+        *(uint64_t*)a = samples[read_probe];
+        #endif
+        #if (VERBOSE<3)
+        STEPCOUNT_ACTION(-1);
+        #endif
+        NEXT;
     //-----------------
 
     HALT:
@@ -2191,6 +2291,18 @@ int main(int argc, char* argv[]){
 
     #ifdef STEPCOUNT
         long binsize = execEnd-execStart;
+        long steps = 0;
+
+        for (int i=0; i < 256; i++) steps += samples[i];
+
+        if (steps != samples[0]) {
+            for (int i=0; i < 256; i++) {
+                if (samples[i] > 0) {
+                    printf("Probe %3d: %10ld\n", i, samples[i]);
+                }
+            }
+        }
+        
         #if (defined(HISTOGRAM) && !defined(NOOPT))
         fprintf(OUTPUT_MSG, "Binary file size: %lu bytes (%.1f %s)\n", 
                              binsize, HUMANSIZE(binsize) ,HUMANPREFIX(binsize));
@@ -2201,6 +2313,8 @@ int main(int argc, char* argv[]){
                              binsize, HUMANSIZE(binsize) ,HUMANPREFIX(binsize));
         fprintf(OUTPUT_MSG, "Executed %lu instructions\n\n", steps);
         #endif
+
+
     #endif
 
     #ifdef HISTOGRAM
@@ -2214,13 +2328,7 @@ int main(int argc, char* argv[]){
     }
     #endif
 
-    #if (VERBOSE >= 2)
-    for (int i=0; i < 256; i++) {
-        if (samples[i] > 0) {
-            printf("Probe %3d: %10ld\n", i, samples[i]);
-        }
-    }
-    #endif
+
 
     // Print the stack in the same format than the vm implementation
     unsigned long nstack = (idx2addr(MemBytes - BYTESPERWORD) - SP)/sizeof(WORD_T);

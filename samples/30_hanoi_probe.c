@@ -102,6 +102,7 @@ void Hanoi(int n,int *source, int *dest, int *spare)
 // compile with:  ivm64-gcc 30_hanoi_probe.c -DWITH_IVM64_PROBES -o 30_hanoi_probe
 // assemble with: ivm as 30_hanoi_probe
 // execute with:  ivm_probe 30_hanoi_probe.b
+long probes[4];
 
 int main()
 {
@@ -126,6 +127,11 @@ int main()
    /* Do it! Use A = Source, B = Destination, C = Spare */
    ivm64_set_probe(3); // after this, probe 3 is used
    Hanoi(N,A,B,C);
+
+   ivm64_set_probe(1); // after this, probe 1 is used again
+   for(i=0;i<4;i++)ivm64_read_probe(i,probes[i]);
+
+   for(i=0;i<4;i++)printf("Probe %d: %9ld\n",i,probes[i]);
 
    ivm64_set_probe(0); // after this (exit code), probe 0 is used again
    // instruction of main() is the sum of probes 1, 2 and 3

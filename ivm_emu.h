@@ -27,18 +27,16 @@ enum OPCODES {
 	OPCODE_EXIT			= 0,
 	OPCODE_NOP			= 1,
 	OPCODE_JUMP			= 2,
-	OPCODE_JUMP_ZERO    = 3,
-	OPCODE_SET_SP       = 4,
-	OPCODE_GET_PC       = 5,
-	OPCODE_GET_SP       = 6,
-	OPCODE_PUSH0        = 7,
-	OPCODE_PUSH1        = 8,
-	OPCODE_PUSH2        = 9,
-	OPCODE_PUSH4        = 10,
-	OPCODE_PUSH8        = 11,
-	OPCODE_SIGX1        = 12,
-	OPCODE_SIGX2        = 13,
-	OPCODE_SIGX4        = 14,
+	OPCODE_JZ_FWD       = 3,
+	OPCODE_JZ_BACK      = 4,
+	OPCODE_SET_SP       = 5,
+	OPCODE_GET_PC       = 6,
+	OPCODE_GET_SP       = 7,
+	OPCODE_PUSH0        = 8,
+	OPCODE_PUSH1        = 9,
+	OPCODE_PUSH2        = 10,
+	OPCODE_PUSH4        = 11,
+	OPCODE_PUSH8        = 12,
 	OPCODE_LOAD1        = 16,
 	OPCODE_LOAD2        = 17,
 	OPCODE_LOAD4        = 18,
@@ -319,8 +317,11 @@ enum OPCODES {
     #endif
 #endif
 #ifdef PATTERN_PUSH0
-	#if (SHORT_JUMP_INSN > 0)
-		OPCODE_SHORT_JUMP,
+	#if (SHORT_JUMPF_INSN > 0)
+		OPCODE_SHORT_JUMPF,
+	#endif
+	#if (SHORT_JUMPB_INSN > 0)
+		OPCODE_SHORT_JUMPB,
 	#endif
 	#if (XOR_0_INSN > 0)
 		OPCODE_XOR_0,
@@ -339,8 +340,11 @@ enum OPCODES {
     #endif
 #endif
 #ifdef PATTERN_PUSH1_ALU
-	#if (LT_1_JZ_INSN > 0)
-		OPCODE_LT_1_JZ,
+	#if (LT_1_JZF_INSN > 0)
+		OPCODE_LT_1_JZF,
+	#endif
+	#if (LT_1_JZB_INSN > 0)
+		OPCODE_LT_1_JZB,
 	#endif
 	#if (NOT_1_ADD_INSN > 0)
 		OPCODE_NOT_1_ADD,
@@ -348,8 +352,11 @@ enum OPCODES {
 	#if (LT_1_NOT_INSN > 0)
 		OPCODE_LT_1_NOT,
 	#endif
-	#if (LT_1_JNZ_INSN > 0)
-		OPCODE_LT_1_JNZ,
+	#if (LT_1_JNZF_INSN > 0)
+		OPCODE_LT_1_JNZF,
+	#endif
+	#if (LT_1_JNZB_INSN > 0)
+		OPCODE_LT_1_JNZB,
 	#endif
 #endif
 #ifdef PATTERN_PUSH1_POW2
@@ -417,12 +424,19 @@ enum OPCODES {
 	#endif
 #endif
 #ifdef PATTERN_LT
-	#if (LT_JZ_INSN > 0)
-		OPCODE_LT_JZ,
+	#if (LT_JZF_INSN > 0)
+		OPCODE_LT_JZF,
 	#endif
-	#if (LT_NOT_JZ_INSN > 0)
-		OPCODE_LT_NOT_JZ,
+	#if (LT_NOT_JZF_INSN > 0)
+		OPCODE_LT_NOT_JZF,
 	#endif
+	#if (LT_JZB_INSN > 0)
+		OPCODE_LT_JZB,
+	#endif
+	#if (LT_NOT_JZB_INSN > 0)
+		OPCODE_LT_NOT_JZB,
+	#endif
+
 #endif
 #ifdef PATTERN_XOR
 	#if (XOR_1_LT_INSN > 0)
@@ -434,6 +448,7 @@ enum OPCODES {
 	OPCODE_BREAK      = 0xf0,
 	OPCODE_TRACE      = 0xf1,
 	OPCODE_PROBE      = 0xf2,
+	OPCODE_PROBE_READ = 0xf3,
 
 // native IO insn
 	OPCODE_PUT_BYTE   = 0xf9,
@@ -464,7 +479,8 @@ enum OPCODES {
 ATTR_NATIVE(A,EXIT,0); \
 ATTR_NATIVE(A,NOP,0); \
 ATTR_NATIVE(A,JUMP,0); \
-ATTR_NATIVE(A,JUMP_ZERO,1); \
+ATTR_NATIVE(A,JZ_FWD,1); \
+ATTR_NATIVE(A,JZ_BACK, 1); \
 ATTR_NATIVE(A,SET_SP,0); \
 ATTR_NATIVE(A,GET_PC,0); \
 ATTR_NATIVE(A,GET_SP,0); \
@@ -473,9 +489,6 @@ ATTR_NATIVE(A,PUSH1,1); \
 ATTR_NATIVE(A,PUSH2,2); \
 ATTR_NATIVE(A,PUSH4,4); \
 ATTR_NATIVE(A,PUSH8,8); \
-ATTR_NATIVE(A,SIGX1,0); \
-ATTR_NATIVE(A,SIGX2,0); \
-ATTR_NATIVE(A,SIGX4,0); \
 ATTR_NATIVE(A,LOAD1,0); \
 ATTR_NATIVE(A,LOAD2,0); \
 ATTR_NATIVE(A,LOAD4,0); \
@@ -655,11 +668,12 @@ ATTRIBUTE(A,FAST_POP2,3);
 #ifdef PATTERN_PUSH0
 //push0/xor
 #define init_attributes_pattern_push0(A)	\
-ATTRIBUTE(A,SHORT_JUMP,2); \
-ATTRIBUTE(A,XOR_0,1); \
-ATTRIBUTE(A,NOT_0_MUL,2); \
-ATTRIBUTE(A,PUSH0X2,1); \
-ATTRIBUTE(A,PUSH0X3,2); \
+ATTRIBUTE(A,SHORT_JUMPF,2); \
+ATTRIBUTE(A,SHORT_JUMPB,2); \
+ATTRIBUTE(A,XOR_0,1);       \
+ATTRIBUTE(A,NOT_0_MUL,2);   \
+ATTRIBUTE(A,PUSH0X2,1);     \
+ATTRIBUTE(A,PUSH0X3,2);     \
 ATTRIBUTE(A,PUSH0X4,3);
 #else
 #define init_attributes_pattern_push0(A)
@@ -667,9 +681,11 @@ ATTRIBUTE(A,PUSH0X4,3);
 
 #ifdef PATTERN_PUSH1_ALU
 #define init_attributes_pattern_push1_alu(A)	\
-ATTRIBUTE(A,LT_1_JZ,4);	\
-ATTRIBUTE(A,LT_1_NOT,4); \
-ATTRIBUTE(A,LT_1_JNZ,5); \
+ATTRIBUTE(A,LT_1_JZF,4);	\
+ATTRIBUTE(A,LT_1_JZB,4);	\
+ATTRIBUTE(A,LT_1_NOT,4);    \
+ATTRIBUTE(A,LT_1_JNZF,5);   \
+ATTRIBUTE(A,LT_1_JNZB,5);   \
 ATTRIBUTE(A,NOT_1_ADD,4);
 #else
 #define init_attributes_pattern_push1_alu(A)
@@ -677,10 +693,10 @@ ATTRIBUTE(A,NOT_1_ADD,4);
 
 #ifdef PATTERN_PUSH1_POW2
 #define init_attributes_pattern_push1_pow2(A)	\
-ATTRIBUTE(A,POW2_1_ADD,3); \
-ATTRIBUTE(A,POW2_1_MUL,3); \
-ATTRIBUTE(A,POW2_1_LT,3); \
-ATTRIBUTE(A,POW2_1_DIV,3); \
+ATTRIBUTE(A,POW2_1_ADD,3);  \
+ATTRIBUTE(A,POW2_1_MUL,3);  \
+ATTRIBUTE(A,POW2_1_LT,3);   \
+ATTRIBUTE(A,POW2_1_DIV,3);  \
 ATTRIBUTE(A,POW2_1,2);
 #else
 #define init_attributes_pattern_push1_pow2(A)
@@ -725,8 +741,10 @@ ATTRIBUTE(A,JUMP_PC_4,7);
 
 #ifdef PATTERN_LT
 #define init_attributes_pattern_lt(A)	\
-ATTRIBUTE(A,LT_JZ,2);		\
-ATTRIBUTE(A,LT_NOT_JZ,3);
+ATTRIBUTE(A,LT_JZF,2);		\
+ATTRIBUTE(A,LT_NOT_JZF,3);  \
+ATTRIBUTE(A,LT_JZB,2);		\
+ATTRIBUTE(A,LT_NOT_JZB,3);
 #else
 #define init_attributes_pattern_lt(A)
 #endif
@@ -741,7 +759,8 @@ ATTRIBUTE(A,XOR_1_LT,3);
 #define init_attributes_trace_insn(A)	\
 ATTR_NATIVE(A,BREAK,0); \
 ATTR_NATIVE(A,TRACE,1); \
-ATTR_NATIVE(A,PROBE,1);
+ATTR_NATIVE(A,PROBE,1); \
+ATTR_NATIVE(A,PROBE_READ,0);
 
 
 #define init_insn_attributes(A)	\
@@ -786,7 +805,8 @@ ATTR_NATIVE(A,PROBE,1);
 BIND_NATIVE(B,EXIT); \
 BIND_NATIVE(B,NOP); \
 BIND_NATIVE(B,JUMP); \
-BIND_NATIVE(B,JUMP_ZERO); \
+BIND_NATIVE(B,JZ_FWD); \
+BIND_NATIVE(B,JZ_BACK); \
 BIND_NATIVE(B,SET_SP); \
 BIND_NATIVE(B,GET_PC); \
 BIND_NATIVE(B,GET_SP); \
@@ -795,9 +815,6 @@ BIND_NATIVE(B,PUSH1); \
 BIND_NATIVE(B,PUSH2); \
 BIND_NATIVE(B,PUSH4); \
 BIND_NATIVE(B,PUSH8); \
-BIND_NATIVE(B,SIGX1); \
-BIND_NATIVE(B,SIGX2); \
-BIND_NATIVE(B,SIGX4); \
 BIND_NATIVE(B,LOAD1); \
 BIND_NATIVE(B,LOAD2); \
 BIND_NATIVE(B,LOAD4); \
@@ -962,7 +979,8 @@ BIND_LABEL(B,FAST_POP2);
 
 #ifdef PATTERN_PUSH0
 #define init_addr_pattern_push0(B)			\
-BIND_LABEL(B,SHORT_JUMP); \
+BIND_LABEL(B,SHORT_JUMPF); \
+BIND_LABEL(B,SHORT_JUMPB); \
 BIND_LABEL(B,XOR_0); \
 BIND_LABEL(B,NOT_0_MUL); \
 BIND_LABEL(B,PUSH0X2); \
@@ -974,9 +992,11 @@ BIND_LABEL(B,PUSH0X4);
 
 #ifdef PATTERN_PUSH1_ALU
 #define init_addr_pattern_push1_alu(B)		\
-BIND_LABEL(B,LT_1_JZ);	\
-BIND_LABEL(B,LT_1_NOT);	\
-BIND_LABEL(B,LT_1_JNZ);	\
+BIND_LABEL(B,LT_1_JZF);     \
+BIND_LABEL(B,LT_1_JZB);     \
+BIND_LABEL(B,LT_1_NOT);	    \
+BIND_LABEL(B,LT_1_JNZF);	\
+BIND_LABEL(B,LT_1_JNZB);	\
 BIND_LABEL(B,NOT_1_ADD);
 #else
 #define init_addr_pattern_push1_alu(B)
@@ -1032,8 +1052,10 @@ BIND_LABEL(B,JUMP_PC_4);
 
 #ifdef PATTERN_LT
 #define init_addr_pattern_lt(B)			\
-BIND_LABEL(B,LT_JZ);	\
-BIND_LABEL(B,LT_NOT_JZ);
+BIND_LABEL(B,LT_JZF);	    \
+BIND_LABEL(B,LT_NOT_JZF);   \
+BIND_LABEL(B,LT_JZB);	    \
+BIND_LABEL(B,LT_NOT_JZB);
 #else
 #define init_addr_pattern_lt(B)
 #endif
@@ -1046,9 +1068,10 @@ BIND_LABEL(B,XOR_1_LT);
 #endif
 
 #define init_addr_trace_insn(B) \
-BIND_NATIVE(B,BREAK); \
-BIND_NATIVE(B,TRACE); \
-BIND_NATIVE(B,PROBE);
+BIND_NATIVE(B,BREAK);   \
+BIND_NATIVE(B,TRACE);   \
+BIND_NATIVE(B,PROBE);   \
+BIND_NATIVE(B,PROBE_READ);
 
 #define init_insn_addr(B)	\
 	do {	\

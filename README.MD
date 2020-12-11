@@ -8,20 +8,20 @@ This ivm64 emulator takes an ivm64 binary and emulates its execution. It benefit
 ### How to compile?
 
 ```
-    make # generates the next six executables
-    gcc -Ofast            ivm_emu.c -o ivm_emu_fast # The fastest one without input/ouput but put_char
-    gcc -Ofast -DWITH_IO  ivm_emu.c ivm_io.c -lpng -o ivm_emu_fast_io # Enable IO instructions
-    gcc -Ofast -DWITH_IO  ivm_emu.c ivm_io.c io_handler.c list.c -lpng -DPARALLEL_OUTPUT -pthread -o ivm_emu_fast_io_parallel # Parallel IO
+    make # generates the next executables
+    gcc -Ofast -DWITH_IO  ivm_emu.c ivm_io.c -lpng -o ivm_emu
+    gcc -Ofast            ivm_emu.c -o ivm_emu_no_io # The fastest one without input/ouput but put_char
+    gcc -Ofast -DWITH_IO  ivm_emu.c ivm_io.c io_handler.c list.c -lpng -DPARALLEL_OUTPUT -pthread -o ivm_emu_parallel # Parallel IO
+    gcc -Ofast -DWITH_IO  ivm_emu.c ivm_io.c -lpng -DNOOPT -DSTEPCOUNT -DVERBOSE=2 -o ivm_trace2
+    gcc -Ofast -DWITH_IO  ivm_emu.c ivm_io.c -lpng -DNOOPT -DSTEPCOUNT -DVERBOSE=3 -o ivm_trace3
     gcc -Ofast -DWITH_IO  ivm_emu.c ivm_io.c -lpng -DNOOPT -DSTEPCOUNT -DVERBOSE=1 -DHISTOGRAM -o ivm_histo
-    gcc -Ofast -DWITH_IO  ivm_emu.c ivm_io.c -lpng -DNOOPT -DSTEPCOUNT -DVERBOSE=2 -o ivm_probe
-    gcc -Ofast -DWITH_IO  ivm_emu.c ivm_io.c -lpng -DNOOPT -DSTEPCOUNT -DVERBOSE=3 -o ivm_trace
 
     # the following options are for debugging and they can make the execution slower:
     gcc -Ofast -DNOOPT     ivm_emu.c  # Disable optimizations
-    gcc -Ofast -DVERBOSE=1 ivm_emu.c  # Enable verbose
-    gcc -Ofast -DVERBOSE=2 ivm_emu.c  # Trace mode
-    gcc -Ofast -DVERBOSE=3 ivm_emu.c  # Detailed trace mode
-    gcc -Ofast -DSTEPCOUNT ivm_emu.c  # Enable instruction count
+    gcc -Ofast -DSTEPCOUNT ivm_emu.c  # Enable instruction count, show probes if used
+    gcc -Ofast -DVERBOSE=1 ivm_emu.c  # Some extra info
+    gcc -Ofast -DVERBOSE=2 ivm_emu.c  # Trace mode (show instruction sequence)
+    gcc -Ofast -DVERBOSE=3 ivm_emu.c  # Detailed trace mode (instr. and stack content sequence)
     gcc -Ofast -DHISTOGRAM ivm_emu.c  # Enable insn. pattern histogram
 
      Number of threads for the version with parallel output:
@@ -42,12 +42,12 @@ Options keep compatibility with the original ivm implementation.
 
 ### DEBUGGING
 
-Version v1.10 of ```ivm_emu_fast``` can be compiled to generate executables that are useful for
+Version v1.12 of ```ivm_emu_fast``` can be compiled to generate executables that are useful for
 debugging. Examples of this capabilities are: ```ivm_histo```, ```ivm_probe``` and ```ivm_trace```.
 
 To allow dinamically activation/deactivation of program tracing, and to extract information of
 executed instructions in a code section, the ```Yet another IVM emulator``` admits three unnused
-opcodes: 0xf0, 0xf1 and 0xf2.
+opcodes: 0xf0, 0xf1, 0xf2 and 0xf3.
 
 In directory ```samples```, a C code using this facility can be found: ```30_hanoi_probe.c```.
 This sample code includes the header ```probe.h``` which contains the macros to easily insert the

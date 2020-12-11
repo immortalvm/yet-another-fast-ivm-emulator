@@ -20,6 +20,8 @@
 // else do nothing
 #define ivm64_set_probe(n)  __asm__ volatile ("data1 [ 0xf2 %0 ]"::"i"(n))
 
+#define ivm64_read_probe(n,a) do{__asm__ volatile ("push!! %0 (load1 %1)\n\tdata1 [ 0xf3 ]":"=m"(a):"m"(n));}while(0)
+
 
 #else
 // Do not produce opcodes 0xf0, 0xf1, 0xf2
@@ -28,6 +30,7 @@
 #define ivm64_trace_soft()
 #define ivm64_trace_hard()
 #define ivm64_set_probe(n)
+#define ivm64_read_probe(n,a)
 
 #endif
 

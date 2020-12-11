@@ -23,6 +23,7 @@
 #include <string.h> //bzero?
 #include "ivm_io.h"
 
+#define OUTPUT_PUTCHAR stderr
 #define MAX_FILENAME 260
 
 // Error codes
@@ -409,7 +410,7 @@ void ioPutChar(uint32_t c) {
     int start = current->text.used;
     bytesPutChar(&current->text, c);
     int len = current->text.used - start;
-    printf("%.*s", len, current->text.array + start);
+    fprintf(OUTPUT_PUTCHAR, "%.*s", len, current->text.array + start);
 }
 
 void ioPutByte(uint8_t x) {
