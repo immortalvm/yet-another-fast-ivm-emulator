@@ -61,12 +61,12 @@
 // Version
 #ifdef WITH_IO
     #ifdef PARALLEL_OUTPUT
-    #define VERSION  "v1.12-fast-io-parallel"
+    #define VERSION  "v1.13-fast-io-parallel"
     #else
-    #define VERSION  "v1.12-fast-io"
+    #define VERSION  "v1.13-fast-io"
     #endif
 #else
-    #define VERSION  "v1.12-fast"
+    #define VERSION  "v1.13-fast"
 #endif
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -251,7 +251,7 @@
 #endif
 #ifdef PATTERN_PUSH2
     #define JUMP_PC_2_INSN   2
-    #define C2TOSTACK1_INSN  1
+    #define C2TOSTACK1_INSN  2
     #define C2TOSTACK2_INSN  2
     #define C2TOSTACK4_INSN  2
     #define C2TOSTACK8_INSN  2
@@ -607,7 +607,6 @@ int main(int argc, char* argv[]){
     uint8_t next1_val;
     uint8_t next1_addr;
     uint16_t next2_val;
-    uint16_t next2_addr;
     #endif
 
     // Instruction operand (unsigned)
@@ -623,7 +622,7 @@ int main(int argc, char* argv[]){
     // Compile with VERBOSE to see the effect
     #if (VERBOSE > 2)
     uint8_t trace = 1;
-    #else
+    #elif (VERBOSE == 2)
     uint8_t trace = 0;
     #endif
     uint8_t probe = 0;
@@ -1843,7 +1842,7 @@ int main(int argc, char* argv[]){
         high4=*(uint32_t*)(PC+3);
         opcode8 = ((uint64_t)high4 << 32)|opcode4;
         #if (JUMP_PC_2_INSN > 0)
-        if ((1UL*OPCODE_JUMP<<32 | OPCODE_ADD<<24 | OPCODE_GET_PC<<16) == (opcode8 & 0x0ffffff000000)){
+        if ((1UL*OPCODE_JUMP<<40 | 1UL*OPCODE_ADD<<32 | OPCODE_GET_PC<<24) == (opcode8 & 0x0ffffff000000)){
             RECODE(JUMP_PC_2);    // PUSH2/GET_PC/ADD/JUMP
             next2 = opcode4 >> 8;
             PC += (WORD_T)next2 + 3;
@@ -1855,8 +1854,8 @@ int main(int argc, char* argv[]){
             == (opcode8 & 0x0ffff00ffff000000)) {
             RECODE(C2TOSTACK8);    // PUSH2/GET_SP/PUSH1/ADD/STORE8
             next2_val = opcode4 >> 8; 
-            next2_addr = *(PC+4); 
-            SPplus = (WORD_T)SP + (WORD_T)next2_addr - sizeof(WORD_T);
+            next1_addr = *(PC+4); 
+            SPplus = (WORD_T)SP + (WORD_T)next1_addr - sizeof(WORD_T);
             PC+=7;
             *((uint64_t*) SPplus) = next2_val;
             STEPCOUNT_ACTION(4); NEXT;
@@ -1867,8 +1866,8 @@ int main(int argc, char* argv[]){
             == (opcode8 & 0x0ffff00ffff000000)) {
             RECODE(C2TOSTACK4);    // PUSH2/GET_SP/PUSH1/ADD/STORE4
             next2_val = opcode4 >> 8; 
-            next2_addr = *(PC+4); 
-            SPplus = (WORD_T)SP + (WORD_T)next2_addr - sizeof(WORD_T);
+            next1_addr = *(PC+4); 
+            SPplus = (WORD_T)SP + (WORD_T)next1_addr - sizeof(WORD_T);
             PC+=7;
             *((uint32_t*) SPplus) = next2_val;
             STEPCOUNT_ACTION(4); NEXT;
@@ -1879,8 +1878,8 @@ int main(int argc, char* argv[]){
             == (opcode8 & 0x0ffff00ffff000000)) {
             RECODE(C2TOSTACK2);    // PUSH2/GET_SP/PUSH1/ADD/STORE2
             next2_val = opcode4 >> 8; 
-            next2_addr = *(PC+4); 
-            SPplus = (WORD_T)SP + (WORD_T)next2_addr - sizeof(WORD_T);
+            next1_addr = *(PC+4); 
+            SPplus = (WORD_T)SP + (WORD_T)next1_addr - sizeof(WORD_T);
             PC+=7;
             *((uint16_t*) SPplus) = next2_val;
             STEPCOUNT_ACTION(4); NEXT;
@@ -1891,8 +1890,8 @@ int main(int argc, char* argv[]){
             == (opcode8 & 0x0ffff00ffff000000)) {
             RECODE(C2TOSTACK1);    // PUSH2/GET_SP/PUSH1/ADD/STORE1
             next2_val = opcode4 >> 8; 
-            next2_addr = *(PC+4); 
-            SPplus = (WORD_T)SP + (WORD_T)next2_addr - sizeof(WORD_T);
+            next1_addr = *(PC+4); 
+            SPplus = (WORD_T)SP + (WORD_T)next1_addr - sizeof(WORD_T);
             PC+=7;
             *((uint8_t*) SPplus) = next2_val;
             STEPCOUNT_ACTION(4); NEXT;
@@ -2243,9 +2242,11 @@ int main(int argc, char* argv[]){
         #endif
         NEXT;
     TRACE:
+        #if (VERBOSE >= 2)
         next1 = *((uint8_t*)PC);
         PC+=1;
         trace = next1;
+        #endif
         #if (VERBOSE<3)
         STEPCOUNT_ACTION(-1);
         #endif
