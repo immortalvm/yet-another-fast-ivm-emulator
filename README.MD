@@ -42,8 +42,8 @@ Options keep compatibility with the original ivm implementation.
 
 ### DEBUGGING
 
-Version v1.12 of ```ivm_emu_fast``` can be compiled to generate executables that are useful for
-debugging. Examples of this capabilities are: ```ivm_histo```, ```ivm_probe``` and ```ivm_trace```.
+Version v1.12 of ```ivm_emu``` can be compiled to generate executables that are useful for
+debugging. Examples of this capabilities are: ```ivm_histo```, ```ivm_trace2``` and ```ivm_trace3```.
 
 To allow dinamically activation/deactivation of program tracing, and to extract information of
 executed instructions in a code section, the ```Yet another IVM emulator``` admits three unnused
@@ -60,7 +60,7 @@ After this, compile the program and assemble it:
 At this point, the binary contains non-standard opcodes, so it can not be executed using ```vm```.
 
 Execute the binary using Yet another IVM emulator:
-```ivm_probe 30_hanoi_probe.b```
+```ivm_emu 30_hanoi_probe.b```
 
 The program makes it normal execution, printing all its output and at the end, the emulator
 print the gathered information, for example:
@@ -77,6 +77,7 @@ End stack:
 0x..000000 0
 
 ```
+Probes can also be read from the program if requiered using ```ivm64_probe_read()```.
 
 To obtain a binary without the non-standard opcodes, just compile the program without WITH_IVM64_PROBES:
 ```ivm64-gcc 30_hanoi_probe.c -o 30_hanoi_probe```
