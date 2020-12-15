@@ -37,7 +37,7 @@ This ivm64 emulator takes an ivm64 binary and emulates its execution. It benefit
 
 Options keep compatibility with the original ivm implementation. 
 
-```ivm_emu_fast [-m <size in bytes>] [-a <arg file>] [-i <input dir>] [-o <output dir>] <ivm_binary_file> ```
+```ivm_emu [-m <size in bytes>] [-a <arg file>] [-i <input dir>] [-o <output dir>] <ivm_binary_file> ```
 
 
 ### DEBUGGING
@@ -60,7 +60,7 @@ After this, compile the program and assemble it:
 At this point, the binary contains non-standard opcodes, so it can not be executed using ```vm```.
 
 Execute the binary using Yet another IVM emulator:
-```ivm_emu 30_hanoi_probe.b```
+```ivm_probe 30_hanoi_probe.b```
 
 The program makes it normal execution, printing all its output and at the end, the emulator
 print the gathered information, for example:
