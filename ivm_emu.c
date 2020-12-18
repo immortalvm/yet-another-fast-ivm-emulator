@@ -61,12 +61,12 @@
 // Version
 #ifdef WITH_IO
     #ifdef PARALLEL_OUTPUT
-    #define VERSION  "v1.13-fast-io-parallel"
+    #define VERSION  "v1.14-fast-io-parallel"
     #else
-    #define VERSION  "v1.13-fast-io"
+    #define VERSION  "v1.14-fast-io"
     #endif
 #else
-    #define VERSION  "v1.13-fast"
+    #define VERSION  "v1.14-fast"
 #endif
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -486,9 +486,7 @@ enum format_stack {FORMAT_STACK_ROW, FORMAT_STACK_IVM};
 void print_stack(int format, unsigned int n){
     int i;
 
-    // The first valid stack position is one word over 
-    // MemBytes-BYTESPERWORD, so we need to substract twice
-    char *stack_start = idx2addr(MemBytes - BYTESPERWORD - BYTESPERWORD); 
+    char *stack_start = idx2addr(MemBytes - BYTESPERWORD);
 
     // Start n positions over SP without going over the start of the stack
     char *p_start = MIN(stack_start, (char*)((uint64_t)(SP) + n*BYTESPERWORD));
@@ -700,7 +698,7 @@ int main(int argc, char* argv[]){
     #endif 
 
     PC = idx2addr(segment_start);  // =execStartPC
-    SP = idx2addr(MemBytes - BYTESPERWORD); 
+    SP = idx2addr(MemBytes);
 
     #if (VERBOSE == 2)
         #define VERBOSE_ACTION do{ if (trace>1) print_stack_status(); if (trace) print_insn(PC-1);} while(0)
@@ -2242,9 +2240,9 @@ int main(int argc, char* argv[]){
         #endif
         NEXT;
     TRACE:
-        #if (VERBOSE >= 2)
         next1 = *((uint8_t*)PC);
         PC+=1;
+        #if (VERBOSE >= 2)
         trace = next1;
         #endif
         #if (VERBOSE<3)
@@ -2275,7 +2273,6 @@ int main(int argc, char* argv[]){
     signal(SIGINT,SIG_DFL);
     signal(SIGSEGV,SIG_DFL);
     signal(SIGFPE,SIG_DFL);
-    uint64_t retval = error ? EXIT_FAILURE : *((uint64_t*)SP);
     
     #ifdef WITH_IO
     ioFlush();
@@ -2329,36 +2326,38 @@ int main(int argc, char* argv[]){
     }
     #endif
 
+    int ret_val;
+    if (error == SIGSEGV) {
+        fprintf(OUTPUT_MSG, "error: segmentation fault\n");
+    } else  if (error == SIGFPE) {
+        fprintf(OUTPUT_MSG, "error: division by zero\n");
+    } else if (error == SIGINT) {
+        fprintf(OUTPUT_MSG, "Program terminated by user request ^C\n");
+    }
 
+    if ( addr2idx(SP) < execStart || addr2idx(SP) >= MemBytes) {
+        fprintf(OUTPUT_MSG, "End stack:\nSP=%p out of range: 0x%lx [0x%lx 0x%lx]\n", SP, addr2idx(SP),
+				execStart, MemBytes);
+        error = 1;
+    } else {
+        unsigned long nstack = (idx2addr(MemBytes - BYTESPERWORD) - SP)/sizeof(WORD_T);
+        int ntop = 5;
+        ret_val = *((uint64_t*)SP);
+        if (nstack > ntop) {
+            fprintf(OUTPUT_MSG, "(showing top %d out of %ld stack positions)\n", ntop+1, nstack);
+        }
+        print_stack(FORMAT_STACK_IVM, ntop);
+    }
 
-    // Print the stack in the same format than the vm implementation
-    unsigned long nstack = (idx2addr(MemBytes - BYTESPERWORD) - SP)/sizeof(WORD_T);
-    if (error){
-        int ntop = 4;
-        fprintf(OUTPUT_MSG, "(error: showing last PC and top %d out of %ld stack positions)\n", ntop+1, nstack);
+    if (error) {
+        fprintf(OUTPUT_MSG, "Last known instruction\n");
         if ( addr2idx(PC-1) < execStart || addr2idx(PC-1) > execEnd){
             printf("PC=%p out of range\n", PC-1);
         } else {
             print_insn(PC-1);
         }
-        print_stack(FORMAT_STACK_IVM, ntop);
-    } else {
-        int ntop = 16;
-        //print_stack(FORMAT_STACK_IVM, 1<<31);
-        if (nstack > ntop)
-        fprintf(OUTPUT_MSG, "(showing top %d out of %ld stack positions)\n", ntop+1, nstack);
-        print_stack(FORMAT_STACK_IVM, ntop);
+        ret_val = EXIT_FAILURE;
     }
 
-    if (error){
-        if (error == SIGFPE) {
-            fprintf(OUTPUT_MSG, "error: division by zero\n");
-        } else if (error == SIGSEGV) {
-            fprintf(OUTPUT_MSG, "error: segmentation fault\n");
-        } else if (error == SIGINT) {
-            fprintf(OUTPUT_MSG, "Program terminated by user request ^C\n");
-        }
-    }
-
-    return (int)retval;
+    return ret_val;
 }
