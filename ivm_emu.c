@@ -61,12 +61,12 @@
 // Version
 #ifdef WITH_IO
     #ifdef PARALLEL_OUTPUT
-    #define VERSION  "v1.14-fast-io-parallel"
+    #define VERSION  "v1.16-fast-io-parallel"
     #else
-    #define VERSION  "v1.14-fast-io"
+    #define VERSION  "v1.16-fast-io"
     #endif
 #else
-    #define VERSION  "v1.14-fast"
+    #define VERSION  "v1.16-fast"
 #endif
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -2338,7 +2338,7 @@ int main(int argc, char* argv[]){
     if ( addr2idx(SP) < execStart || addr2idx(SP) >= MemBytes) {
         fprintf(OUTPUT_MSG, "End stack:\nSP=%p out of range: 0x%lx [0x%lx 0x%lx]\n", SP, addr2idx(SP),
 				execStart, MemBytes);
-        error = 1;
+        ret_val = EXIT_FAILURE;
     } else {
         unsigned long nstack = (idx2addr(MemBytes - BYTESPERWORD) - SP)/sizeof(WORD_T);
         int ntop = 5;
@@ -2356,7 +2356,15 @@ int main(int argc, char* argv[]){
         } else {
             print_insn(PC-1);
         }
-        ret_val = EXIT_FAILURE;
+	if (error == SIGSEGV) {
+            // real seg fault again;
+	    // The script running the tests want the same behabiour in ivm64-gcc as in gcc
+	    // 	so, programs the seg.fault with gcc should seg.fault with ivm_emu
+	    char *p = 0;
+	    *p = 0;
+	} else {
+           ret_val = error | 0x80;
+	}
     }
 
     return ret_val;
