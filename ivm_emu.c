@@ -13,7 +13,7 @@
 
 
  Input/output version:
- IO stuff in file ivm_io.c, fucntion extracted from Ivar Rummelhoff code in:
+ IO stuff in file ivm_io.c, function extracted from Ivar Rummelhoff code in:
  github.com/preservationvm/ivm-implementations/blob/master/OtherMachines/vm.c
  Requeriments:
  * install libpng: sudo apt-get install libpng-dev
@@ -29,7 +29,7 @@
  * compile with options: -DWITH_IO -lpng -DPARALLEL_OUTPUT -pthread [-DNUM_THREADS]
  * and link with: ivm_io (compiled with -DPARALLEL_OUTPUT), io_handler, list
  
- Date: May 2020
+ Date: May 2020-Feb 2021
 
 
  Some ideas from http://www.w3group.de/stable.html
@@ -61,12 +61,12 @@
 // Version
 #ifdef WITH_IO
     #ifdef PARALLEL_OUTPUT
-    #define VERSION  "v1.16-fast-io-parallel"
+    #define VERSION  "v1.17-fast-io-parallel"
     #else
-    #define VERSION  "v1.16-fast-io"
+    #define VERSION  "v1.17-fast-io"
     #endif
 #else
-    #define VERSION  "v1.16-fast"
+    #define VERSION  "v1.17-fast"
 #endif
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -645,6 +645,14 @@ int main(int argc, char* argv[]){
     #endif
     #ifdef HISTOGRAM
         fprintf(OUTPUT_MSG, "%s -DHISTOGRAM", str);
+        str = "";
+    #endif
+    #if defined(WITH_IO)
+        fprintf(OUTPUT_MSG, "%s -DWITH_IO", str);
+        str = "";
+    #endif
+    #ifdef PARALLEL_OUTPUT
+        fprintf(OUTPUT_MSG, "%s -DPARALLEL_OUTPUT", str);
         str = "";
     #endif
     if (str[0] == '\0') printf("\n");
@@ -2318,7 +2326,7 @@ int main(int argc, char* argv[]){
     #ifdef HISTOGRAM
     for (int i=0; i < 256; i++) {
         if (histogram[i] > 0) {
-            printf("%10ld\t%-10s\t%6.3lf%%\t%10ld\t%15.2lf\n",
+            printf("%15ld\t%-10s\t%6.3lf%%\t%15ld\t%20.2lf\n",
                     histogram[i], insn_attributes[i].name,
                     (double)histogram[i]/fetchs*100, histo2[i],
                     histo2[i]?(double)histogram[i]/histo2[i]:histogram[i]);

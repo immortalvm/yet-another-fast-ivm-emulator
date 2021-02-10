@@ -5,7 +5,7 @@ To test ivm image input/output
 
     # Choose favourite emulator
     IVM_EMU="ivm run"
-    IVM_EMU="ivm_emu_fast_io_parallel"
+    IVM_EMU="ivm_emu_fast"
 
     $IVM_EMU -i /path/to/in -o /path/to/out ex_ivm_io.b 
 
@@ -14,6 +14,14 @@ To test ivm image input/output
         $IVM_EMU -i /path/to/in -o /path/to/in ex_ivm_io.b 
     # No output dir
         $IVM_EMU -i /path/to/in ex_ivm_io.b 
+
+    # Using shebang environment variables:
+        IVM_EMU=/path/to/ivm_emu_fast IVM_INDIR=/path/to/in IVM_OUTDIR=/path/to/out ./a.out
+         or
+        export IVM_EMU=/path/to/ivm_emu_fast 
+        export IVM_INDIR=/path/to/in 
+        export IVM_OUTDIR=/path/to/out 
+        ./a.out
 
 */
 
