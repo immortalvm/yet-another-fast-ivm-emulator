@@ -31,20 +31,20 @@ all: $(EXEC_FAST) $(EXEC_SEQ) $(EXEC_PAR) $(EXEC_HISTO) $(EXEC_TRACE2) $(EXEC_TR
 $(EXEC_FAST): ivm_emu.c ivm_emu.h
 	$(CC) $(CFLAGS) $< -o $@
 
-$(EXEC_SEQ): ivm_emu.c ivm_io.c
-	$(CC) $(CFLAGS) $^ -o $@ -DWITH_IO -lpng
+$(EXEC_SEQ): ivm_emu.c ivm_emu.h ivm_io.h 
+	$(CC) $(CFLAGS) $< -o $@ -DWITH_IO -lpng
 
-$(EXEC_HISTO): ivm_emu.c ivm_io.c
-	$(CC) $(CFLAGS) $^ -o $@ -DWITH_IO -lpng -DNOOPT -DVERBOSE=1 -DHISTOGRAM
+$(EXEC_PAR): ivm_emu.c ivm_emu.h ivm_io.h 
+	$(CC) $(CFLAGS) $< -o $@ -DWITH_IO -lpng -DPARALLEL_OUTPUT
 
-$(EXEC_TRACE2): ivm_emu.c ivm_io.c
-	$(CC) $(CFLAGS) $^ -o $@ -DWITH_IO -lpng -DNOOPT -DVERBOSE=2
+$(EXEC_HISTO): ivm_emu.c ivm_emu.h ivm_io.h
+	$(CC) $(CFLAGS) $< -o $@ -DWITH_IO -lpng -DSTEPCOUNT -DNOOPT -DVERBOSE=1 -DHISTOGRAM
 
-$(EXEC_TRACE3): ivm_emu.c ivm_io.c
-	$(CC) $(CFLAGS) $^ -o $@ -DWITH_IO -lpng -DNOOPT -DVERBOSE=3
+$(EXEC_TRACE2): ivm_emu.c ivm_emu.h ivm_io.h
+	$(CC) $(CFLAGS) $< -o $@ -DWITH_IO -lpng -DSTEPCOUNT -DNOOPT -DVERBOSE=2
 
-$(EXEC_PAR): ivm_emu.c ivm_io.c io_handler.c list.c
-	$(CC) $(CFLAGS) $^ -o $@ -DWITH_IO -lpng -DPARALLEL_OUTPUT -pthread
+$(EXEC_TRACE3): ivm_emu.c ivm_emu.h ivm_io.h
+	$(CC) $(CFLAGS) $< -o $@ -DWITH_IO -lpng -DSTEPCOUNT -DNOOPT -DVERBOSE=3
 
 clean:
 	-rm -fv $(EXEC_FAST) $(EXEC_SEQ) $(EXEC_PAR) $(EXEC_HISTO) $(EXEC_TRACE2) $(EXEC_TRACE3)

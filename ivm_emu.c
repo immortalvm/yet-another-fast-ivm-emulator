@@ -9,11 +9,11 @@
   Sergio Romero Montiel
   Oscar Plata Gonzalez
 
- Date: Mar 2020
+ Date: Mar 2020 - Feb 2021
 
 
  Input/output version:
- IO stuff in file ivm_io.c, function extracted from Ivar Rummelhoff code in:
+ IO stuff in file ivm_io.c, fucntion extracted from Ivar Rummelhoff code in:
  github.com/preservationvm/ivm-implementations/blob/master/OtherMachines/vm.c
  Requeriments:
  * install libpng: sudo apt-get install libpng-dev
@@ -23,13 +23,8 @@
 
 
  Parallel version:
- Output frames (and other files) are enqueued and written by additional thread/s
- Requeriments:
- * pthreads library
- * compile with options: -DWITH_IO -lpng -DPARALLEL_OUTPUT -pthread [-DNUM_THREADS]
- * and link with: ivm_io (compiled with -DPARALLEL_OUTPUT), io_handler, list
- 
- Date: May 2020-Feb 2021
+     Based on creating one independent process for writing each frame
+ * compile ivm_emu with options: -DWITH_IO -lpng -DPARALLE_OUTPUT
 
 
  Some ideas from http://www.w3group.de/stable.html
@@ -41,32 +36,33 @@
     make # generates the next three executables
     gcc -Ofast ivm_emu.c   # The fastest one without input/ouput
 	gcc -Ofast -DWITH_IO   ivm_emu.c ivm_io.c -lpng  # Enable IO instruction
-    gcc -Ofast -DWITH_IO   ivm_emu.c ivm_io.c io_handler.c list.c -lpng -DPARALLEL_OUTPUT -pthread
-    
-    gcc -Ofast -DVERBOSE=1 ivm_emu.c  # Enable verbose basic
-    gcc -Ofast -DVERBOSE=2 ivm_emu.c  # Enable verbose with trace insn
+    gcc -Ofast -DWITH_IO   ivm_emu.c ivm_io.c -lpng -DPARALLEL_OUTPUT # Enable parallel output
+
+    gcc -Ofast -DVERBOSE=1 ivm_emu.c  # Enable verbose
+    gcc -Ofast -DVERBOSE=2 ivm_emu.c  #
     gcc -Ofast -DVERBOSE=3 ivm_emu.c  #
     gcc -Ofast -DSTEPCOUNT ivm_emu.c  # Enable instruction count
     gcc -Ofast -DNOOPT     ivm_emu.c  # Disable optimizations
     gcc -Ofast -DHISTOGRAM ivm_emu.c  # Enable insn. pattern histogram
 
- Number of threads for the parallel version:
+ Number of processes for the parallel version:
  * Default: 8
  * if compiled with -DNUM_THREADS=N1, N1 is used instead of the default value
  * if environment variable export NUM_THREADS=N2, N2 is used instead of N1 or default
- * In any case, the parallel version uses at least 2 threads, in general:
-            1 thread for emulation and (N-1) thread for io
+ * In any case, the parallel version uses at least 2 processes, in general:
+            1 for emulation and (N-1) processes for io
+ Note that this number refers to forked processes, although named NUM_THREADS
 */
 
 // Version
 #ifdef WITH_IO
     #ifdef PARALLEL_OUTPUT
-    #define VERSION  "v1.17-fast-io-parallel"
+    #define VERSION  "v1.17-fast-io-parallel (fork)"
     #else
-    #define VERSION  "v1.17-fast-io"
+    #define VERSION  "v1.17-fast-io (fork)"
     #endif
 #else
-    #define VERSION  "v1.17-fast"
+    #define VERSION  "v1.17-fast (fork)"
 #endif
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -299,16 +295,28 @@
 
 // include emulator header file after defines
 #include "ivm_emu.h"
+
+// Global options
+// Default memory size in bytes
+#define MEMBYTES (16UL*1024*1024)
+char *opt_bycodefile = NULL;           // Binary bytecode file name
+unsigned long opt_maxmem = MEMBYTES;   // Memory size (-m <number>)
+char* argFile = NULL;
+char* inpDir = NULL;
+char* outDir = NULL;
+
+
 #if defined(WITH_IO)
 #undef NO_IO
 // IO instructions
 #include "ivm_io.h"
 #else
 #define NO_IO
-#define OUTPUT_PUTCHAR stderr
-#define OUTPUT_OUTPUT stderr
+#undef PARALLEL_OUTPUT
 #endif
 
+#define OUTPUT_PUTCHAR stderr
+#define OUTPUT_PUTBYTE stderr
 
 // Check machine requeriments
 #if (defined(__BIG_ENDIAN__) || (defined(__BYTE_ORDER) && __BYTE_ORDER==__BIG_ENDIAN))
@@ -329,9 +337,6 @@
 //
 ////////////////////////////////////////////////////////////////////////////////
 
-// Default memory size in bytes
-#define MEMBYTES (16UL*1024*1024)
-
 // Output stream for error messages and putchar, respectively
 // By default: stdout for program messages and stderr for put_char
 #define OUTPUT_MSG stdout
@@ -346,7 +351,7 @@ void* addr[256];        // Where to go to execute the instruction
 
 long segment_start = 0; // Where to load the bytecode
                         // Mem[segment_start] is the
-                        // first byte of the program 
+                        // first byte of the program
 
 //Program bytes are placed from Mem[execStart] to Mem[execEnd],
 //both included
@@ -357,10 +362,10 @@ unsigned long argEnd= 0;     // Last position of the argument file in memory
 
 typedef struct insn_attr {
     const char *name; // Name of the instruction
-    int opbytes;      // Number of bytes of the immediate operand 
-                      // As the opcode is 1-byte long, the total size 
+    int opbytes;      // Number of bytes of the immediate operand
+                      // As the opcode is 1-byte long, the total size
                       // of the instruction is:
-                      // opbytes + 1  
+                      // opbytes + 1
 } insn_attr_t;
 // Array of attributes for all the instruction set
 insn_attr_t insn_attributes[256];
@@ -370,15 +375,23 @@ unsigned long histogram[256];
 unsigned long histo2[256];
 #endif
 
+#if (VERBOSE > 0)
+unsigned long samples[256];
+#endif
 
+#ifdef PARALLEL_OUTPUT
+#if !defined(NUM_THREADS)
+    // Default number of processes
+    int maxproc = 4;
+#else
+    // defined with -DNUM_THREADS=N at compile time
+    int maxproc = NUM_THREADS;
+#endif
 
-
-// Global options
-char *opt_bycodefile = NULL;           // Binary bytecode file name
-unsigned long opt_maxmem = MEMBYTES;   // Memory size (-m <number>)
-char* argFile = NULL;
-char* inpDir = NULL;
-char* outDir = NULL;
+int child = 0;
+unsigned int nproc=0;
+int status;
+#endif
 
 
 /*
@@ -411,7 +424,7 @@ int get_options(int argc, char* argv[]) {
     if (!opt_bycodefile) {
         fprintf(OUTPUT_MSG, "Usage:\n\t%s [-m <size in bytes>] "
                             "[-o <output dir>] [-i <input dir>] "
-                            "[-a <arg file>] <ivm binary file>\n", 
+                            "[-a <arg file>] <ivm binary file>\n",
                 argv[0]);
         return 0;
     }
@@ -420,18 +433,18 @@ int get_options(int argc, char* argv[]) {
         fprintf(OUTPUT_MSG, "opt_maxmem=%ld, opt_bycodefile='%s'\n",
                 opt_maxmem, opt_bycodefile);
         if (outDir)
-            fprintf(OUTPUT_MSG, "outDir=%s\n", outDir); 
+            fprintf(OUTPUT_MSG, "outDir=%s\n", outDir);
         if (inpDir)
-            fprintf(OUTPUT_MSG, "inpDir=%s\n", inpDir); 
+            fprintf(OUTPUT_MSG, "inpDir=%s\n", inpDir);
         if (argFile)
-            fprintf(OUTPUT_MSG, "argFile=%s\n", argFile); 
+            fprintf(OUTPUT_MSG, "argFile=%s\n", argFile);
     #endif
 
     return 1;
 }
 
 /*
-    Read a ivm binary bycode file and load it into memory 
+    Read a ivm binary bycode file and load it into memory
     starting at position 'offset'
     (Mem[offset] is the first byte of the program)
 */
@@ -445,8 +458,8 @@ int ivm_read_bin(char *filename, unsigned long offset, unsigned long *m_start, u
     }
 
     long fs; // File size
-    fs = fread(&Mem[offset], 1, MemBytes-offset, fd); 
-    
+    fs = fread(&Mem[offset], 1, MemBytes-offset, fd);
+
     #if (VERBOSE>0)
         fprintf(OUTPUT_MSG, "Read %ld bytes from '%s'\n", fs, filename);
     #endif
@@ -470,7 +483,7 @@ int ivm_read_bin(char *filename, unsigned long offset, unsigned long *m_start, u
 
 
 /*
-    Print the last n elements of the stack 
+    Print the last n elements of the stack
     FORMAT_STACK_ROW: for tracing the stack, elements in a row
     FORMAT_STACK_IVM: to print at the end the resulting stack
                       like the ivm application
@@ -486,7 +499,9 @@ enum format_stack {FORMAT_STACK_ROW, FORMAT_STACK_IVM};
 void print_stack(int format, unsigned int n){
     int i;
 
-    char *stack_start = idx2addr(MemBytes - BYTESPERWORD);
+    // The first valid stack position is one word over
+    // MemBytes-BYTESPERWORD, so we need to substract twice
+    char *stack_start = idx2addr(MemBytes - BYTESPERWORD - BYTESPERWORD);
 
     // Start n positions over SP without going over the start of the stack
     char *p_start = MIN(stack_start, (char*)((uint64_t)(SP) + n*BYTESPERWORD));
@@ -519,7 +534,7 @@ void print_stack(int format, unsigned int n){
 */
 int ivm_mem_dump(unsigned long start, unsigned long end){
     unsigned long i,k;
-    int rowbytes = 16; // bytes shown per row 
+    int rowbytes = 16; // bytes shown per row
 
     fprintf(OUTPUT_MSG, "%#016lx\t", start);
     for (i = start; i <= end; i++){
@@ -597,7 +612,7 @@ int main(int argc, char* argv[]){
     int error = 0; // Any error that stops simulation
     uint8_t opcode1;
     #ifndef NOOPT
-    uint32_t opcode4;  
+    uint32_t opcode4;
     uint32_t high4;
     uint64_t opcode8;
     uint64_t PCplus;
@@ -605,6 +620,7 @@ int main(int argc, char* argv[]){
     uint8_t next1_val;
     uint8_t next1_addr;
     uint16_t next2_val;
+    uint16_t next2_addr;
     #endif
 
     // Instruction operand (unsigned)
@@ -613,8 +629,14 @@ int main(int argc, char* argv[]){
     uint32_t next4;
     uint64_t next8;
 
+
+
+    // Instruction operand (signed, only for jump offset)
+    int8_t  next1s;
+    int64_t offset; // offset for jump_zero (signed)
+
     uint64_t a, b, r, u, v; // Unsigned aux. variables
-    int64_t  x, y;          // Signed aux. variables 
+    int64_t  x, y;          // Signed aux. variables
 
     // Trace ON/OFF through given opcodes
     // Compile with VERBOSE to see the effect
@@ -662,7 +684,7 @@ int main(int argc, char* argv[]){
     }
 
     // Get options
-    filename = opt_bycodefile; 
+    filename = opt_bycodefile;
     MemBytes = opt_maxmem;
 
     // Prepare the memory
@@ -671,16 +693,29 @@ int main(int argc, char* argv[]){
     #ifndef NO_IO
     ioInitIn();
     ioInitOut();
+    #ifdef PARALLEL_OUTPUT
+        // if environment variable NUM_THREADS=N exists, this value is used instead
+        // of any previous value as the maximum number of processes
+        char *nthreads_str = getenv("NUM_THREADS");
+        if (nthreads_str) maxproc = atoi(nthreads_str);
+        // Must be 2 or more: 1 thread for emulation and (N-1) threads for io
+        maxproc = (maxproc<1)?1:maxproc;
+        #if (VERBOSE > 0)
+        printf("maxproc=%d\n", maxproc);
+        #endif
     #endif
+    #endif
+
+    fprintf(OUTPUT_MSG,"\n");
 
     // Instruction Set.
     init_insn_addr(addr);
     init_insn_attributes(insn_attributes);
-        
+
     // Read bytecode file
     ivm_read_bin(filename, segment_start, &execStart, &execEnd);
     #if (VERBOSE>0)
-    fprintf(OUTPUT_MSG, "First byte of the program indexed by %#lx (=%ld), last byte by %#lx (=%ld)\n", 
+    fprintf(OUTPUT_MSG, "First byte of the program indexed by %#lx (=%ld), last byte by %#lx (=%ld)\n",
             execStart, execStart, execEnd, execEnd);
     fprintf(OUTPUT_MSG, "\n");
     #endif
@@ -692,28 +727,28 @@ int main(int argc, char* argv[]){
         ivm_read_bin(argFile, execEnd+9, &argStart, &argEnd);
         *(uint64_t*)(&Mem[execEnd+1]) = argEnd - argStart + 1;
         #if (VERBOSE>0)
-        fprintf(OUTPUT_MSG, "First byte of the argument file indexed by %#lx (=%ld), last byte by %#lx (=%ld)\n", 
+        fprintf(OUTPUT_MSG, "First byte of the argument file indexed by %#lx (=%ld), last byte by %#lx (=%ld)\n",
                 argStart, argStart, argEnd, argEnd);
         fprintf(OUTPUT_MSG, "\n");
         #endif
     }
 
     #if (VERBOSE >= 3)
-    if (execEnd - execStart < 1024*100) { 
+    if (execEnd - execStart < 1024*100) {
        // Dump memory only for small programs
         ivm_mem_dump(execStart, execEnd);
     }
-    #endif 
+    #endif
 
     PC = idx2addr(segment_start);  // =execStartPC
-    SP = idx2addr(MemBytes);
+    SP = idx2addr(MemBytes - BYTESPERWORD);
 
     #if (VERBOSE == 2)
         #define VERBOSE_ACTION do{ if (trace>1) print_stack_status(); if (trace) print_insn(PC-1);} while(0)
     #elif (VERBOSE >= 3)
         #define VERBOSE_ACTION do{ print_stack_status(); print_insn(PC-1);} while(0)
     #else
-        #define VERBOSE_ACTION 
+        #define VERBOSE_ACTION
     #endif
 
     #ifdef HISTOGRAM
@@ -734,7 +769,7 @@ int main(int argc, char* argv[]){
         bzero(samples, 256*sizeof(unsigned long));
         #define STEPCOUNT_ACTION(n)  do{samples[probe]+=n;}while(0)
         #define FETCHCOUNT_ACTION    do{fetchs++;}while(0)
-    #else 
+    #else
         #define STEPCOUNT_ACTION(n)
         #define FETCHCOUNT_ACTION
     #endif
@@ -787,7 +822,7 @@ int main(int argc, char* argv[]){
     EXIT:
         goto HALT;
     //-----------------
-    NOP: 
+    NOP:
     #if OPTENABLED
         #ifdef PATTERN_NOPN
         #define PATTERN_NOP2_CODE (OPCODE_NOP<<8 | OPCODE_NOP)
@@ -1321,10 +1356,10 @@ int main(int argc, char* argv[]){
                 // backstop for default (get_sp)
                     push((WORD_T)SP);
                     NEXT;
-            }    
+            }
         } else
         #endif
-        #ifdef PATTERN_GETSP_PUSH1       
+        #ifdef PATTERN_GETSP_PUSH1
         #if (DEC_SP_1_INSN > 0)
         if (((OPCODE_NOT<<24 | OPCODE_PUSH1<<8) == (opcode4 & 0x0ff00ff00)) &&
             (*(uint16_t*)(PC+3)==(OPCODE_SET_SP<<8|OPCODE_ADD))) {
@@ -1457,7 +1492,7 @@ int main(int argc, char* argv[]){
     #else
         push((WORD_T)SP);
         NEXT;
-    #endif        
+    #endif
     //-----------------
     PUSH0:
     #if OPTENABLED
@@ -1543,7 +1578,7 @@ int main(int argc, char* argv[]){
                 case OPCODE_ADD<<24:
                     RECODE(POW2_1_ADD);    // PUSH1/POW2/ADD
                     next1 = opcode4 >> 8;
-                    x = (1UL << next1);                
+                    x = (1UL << next1);
                     y = pop();
                     push(x + y);
                     PC+=3; STEPCOUNT_ACTION(2); NEXT;
@@ -1551,8 +1586,8 @@ int main(int argc, char* argv[]){
                 #if (POW2_1_DIV_INSN > 0)
                 case OPCODE_DIV<<24:
                     RECODE(POW2_1_DIV);    // PUSH1/POW2/DIV
-                    next1 = opcode4 >> 8; 
-                    u = (1UL << next1);                
+                    next1 = opcode4 >> 8;
+                    u = (1UL << next1);
                     v = pop();
                     push(v / u);
                     PC+=3; STEPCOUNT_ACTION(2); NEXT;
@@ -1560,8 +1595,8 @@ int main(int argc, char* argv[]){
                 #if (POW2_1_MUL_INSN > 0)
                 case OPCODE_MUL<<24:
                     RECODE(POW2_1_MUL);    // PUSH1/POW2/MUL
-                    next1 = opcode4 >> 8; 
-                    x = (1UL << next1);                
+                    next1 = opcode4 >> 8;
+                    x = (1UL << next1);
                     y = pop();
                     push(x * y);
                     PC+=3; STEPCOUNT_ACTION(2); NEXT;
@@ -1569,10 +1604,10 @@ int main(int argc, char* argv[]){
                 #if (POW2_1_LT_INSN > 0)
                 case OPCODE_LT<<24:
                     RECODE(POW2_1_LT);    // PUSH1/POW2/LT
-                    next1 = opcode4 >> 8; 
-                    u = (1UL << next1);                
+                    next1 = opcode4 >> 8;
+                    u = (1UL << next1);
                     v = pop();
-                    PC+=3; STEPCOUNT_ACTION(2);        
+                    PC+=3; STEPCOUNT_ACTION(2);
                     if (v < u) {
                         push(-1);
                         NEXT;
@@ -1583,9 +1618,9 @@ int main(int argc, char* argv[]){
                 #endif
                 default:    // Default case, none of the arithmetics above
                 #if (POW2_1_INSN > 0)
-                    RECODE(POW2_1);    // PUSH1/POW2 
-                    next1 = opcode4 >> 8; 
-                    u = (1UL << next1);                
+                    RECODE(POW2_1);    // PUSH1/POW2
+                    next1 = opcode4 >> 8;
+                    u = (1UL << next1);
                     push(u);
                     PC+=2;
                     STEPCOUNT_ACTION(1);
@@ -1602,8 +1637,8 @@ int main(int argc, char* argv[]){
         #if (LT_1_JZF_INSN > 0)
         if ((OPCODE_JZ_FWD<<24 | OPCODE_LT<<16) == (opcode4 & 0x0ffff0000)){
             RECODE(LT_1_JZF);    // PUSH1/LT/JZ_FWD
-            next1 = opcode4 >> 8; 
-            u = next1; 
+            next1 = opcode4 >> 8;
+            u = next1;
             v = pop();
             STEPCOUNT_ACTION(2);
             if (v < u) {
@@ -1618,8 +1653,8 @@ int main(int argc, char* argv[]){
         #if (LT_1_JZB_INSN > 0)
         if ((OPCODE_JZ_BACK<<24 | OPCODE_LT<<16) == (opcode4 & 0x0ffff0000)){
             RECODE(LT_1_JZB);    // PUSH1/LT/JZ_BACK
-            next1 = opcode4 >> 8; 
-            u = next1; 
+            next1 = opcode4 >> 8;
+            u = next1;
             v = pop();
             STEPCOUNT_ACTION(2);
             if (v < u) {
@@ -1636,8 +1671,8 @@ int main(int argc, char* argv[]){
             #if (LT_1_JNZF_INSN > 0)
             if (*(uint8_t*)(PC+3) == OPCODE_JZ_FWD) {
                 RECODE(LT_1_JNZF);    // PUSH1/LT/NOT/JZ_FWD
-                next1 = opcode4 >> 8; 
-                u = next1; 
+                next1 = opcode4 >> 8;
+                u = next1;
                 v = pop();
                 STEPCOUNT_ACTION(2);
                 if (v >= u) {
@@ -1652,8 +1687,8 @@ int main(int argc, char* argv[]){
             #if (LT_1_JNZB_INSN > 0)
             if (*(uint8_t*)(PC+3) == OPCODE_JZ_BACK) {
                 RECODE(LT_1_JNZB);    // PUSH1/LT/NOT/JZ_FWD
-                next1 = opcode4 >> 8; 
-                u = next1; 
+                next1 = opcode4 >> 8;
+                u = next1;
                 v = pop();
                 STEPCOUNT_ACTION(2);
                 if (v >= u) {
@@ -1668,8 +1703,8 @@ int main(int argc, char* argv[]){
             #if (LT_1_NOT_INSN > 0)
             {
                 RECODE(LT_1_NOT);    // PUSH1/LT/NOT
-                next1 = opcode4 >> 8; 
-                u = next1; 
+                next1 = opcode4 >> 8;
+                u = next1;
                 v = pop();
                 STEPCOUNT_ACTION(2);
                 if (v < u) {
@@ -1799,8 +1834,8 @@ int main(int argc, char* argv[]){
             if ((1UL*OPCODE_STORE1<<48 | 1UL*OPCODE_ADD<<40 | OPCODE_PUSH1<<24 | OPCODE_GET_SP<<16)
                 == (opcode8 & 0x0ffff00ffff0000)){
                 RECODE(C1TOSTACK1);    // PUSH1/GET_SP/PUSH1/ADD/STORE1
-                next1_val = opcode4 >> 8; 
-                next1_addr = *(PC+3); 
+                next1_val = opcode4 >> 8;
+                next1_addr = *(PC+3);
                 SPplus = (WORD_T)SP + (WORD_T)next1_addr - sizeof(WORD_T);
                 *((uint8_t*) SPplus) = next1_val;
                 PC+=6; STEPCOUNT_ACTION(4); NEXT;
@@ -1859,8 +1894,8 @@ int main(int argc, char* argv[]){
         if ((1UL*OPCODE_STORE8<<56 | 1UL*OPCODE_ADD<<48 | 1UL*OPCODE_PUSH1<<32 | OPCODE_GET_SP<<24)
             == (opcode8 & 0x0ffff00ffff000000)) {
             RECODE(C2TOSTACK8);    // PUSH2/GET_SP/PUSH1/ADD/STORE8
-            next2_val = opcode4 >> 8; 
-            next1_addr = *(PC+4); 
+            next2_val = opcode4 >> 8;
+            next1_addr = *(PC+4);
             SPplus = (WORD_T)SP + (WORD_T)next1_addr - sizeof(WORD_T);
             PC+=7;
             *((uint64_t*) SPplus) = next2_val;
@@ -1871,8 +1906,8 @@ int main(int argc, char* argv[]){
         if ((1UL*OPCODE_STORE4<<56 | 1UL*OPCODE_ADD<<48 | 1UL*OPCODE_PUSH1<<32 | OPCODE_GET_SP<<24)
             == (opcode8 & 0x0ffff00ffff000000)) {
             RECODE(C2TOSTACK4);    // PUSH2/GET_SP/PUSH1/ADD/STORE4
-            next2_val = opcode4 >> 8; 
-            next1_addr = *(PC+4); 
+            next2_val = opcode4 >> 8;
+            next1_addr = *(PC+4);
             SPplus = (WORD_T)SP + (WORD_T)next1_addr - sizeof(WORD_T);
             PC+=7;
             *((uint32_t*) SPplus) = next2_val;
@@ -1883,8 +1918,8 @@ int main(int argc, char* argv[]){
         if ((1UL*OPCODE_STORE2<<56 | 1UL*OPCODE_ADD<<48 | 1UL*OPCODE_PUSH1<<32 | OPCODE_GET_SP<<24)
             == (opcode8 & 0x0ffff00ffff000000)) {
             RECODE(C2TOSTACK2);    // PUSH2/GET_SP/PUSH1/ADD/STORE2
-            next2_val = opcode4 >> 8; 
-            next1_addr = *(PC+4); 
+            next2_val = opcode4 >> 8;
+            next1_addr = *(PC+4);
             SPplus = (WORD_T)SP + (WORD_T)next1_addr - sizeof(WORD_T);
             PC+=7;
             *((uint16_t*) SPplus) = next2_val;
@@ -1895,8 +1930,8 @@ int main(int argc, char* argv[]){
         if ((1UL*OPCODE_STORE1<<56 | 1UL*OPCODE_ADD<<48 | 1UL*OPCODE_PUSH1<<32 | OPCODE_GET_SP<<24)
             == (opcode8 & 0x0ffff00ffff000000)) {
             RECODE(C2TOSTACK1);    // PUSH2/GET_SP/PUSH1/ADD/STORE1
-            next2_val = opcode4 >> 8; 
-            next1_addr = *(PC+4); 
+            next2_val = opcode4 >> 8;
+            next1_addr = *(PC+4);
             SPplus = (WORD_T)SP + (WORD_T)next1_addr - sizeof(WORD_T);
             PC+=7;
             *((uint8_t*) SPplus) = next2_val;
@@ -1905,7 +1940,7 @@ int main(int argc, char* argv[]){
         #endif
         #endif
         {
-            RECODE(NEW_PUSH2);    // new push2 
+            RECODE(NEW_PUSH2);    // new push2
             next2 = *((uint16_t*)PC);
             push((WORD_T)next2);
             PC+=2;
@@ -1969,19 +2004,19 @@ int main(int argc, char* argv[]){
     //-----------------
     STORE1:
         u = pop();
-        *((uint8_t*)u) = pop(); 
+        *((uint8_t*)u) = pop();
         NEXT;
     STORE2:
         u = pop();
-        *((uint16_t*)u) = pop(); 
+        *((uint16_t*)u) = pop();
         NEXT;
     STORE4:
         u = pop();
-        *((uint32_t*)u) = pop(); 
+        *((uint32_t*)u) = pop();
         NEXT;
     STORE8:
         u = pop();
-        *((uint64_t*)u) = pop(); 
+        *((uint64_t*)u) = pop();
         NEXT;
     //-----------------
     // Arithmetic
@@ -2022,7 +2057,7 @@ int main(int argc, char* argv[]){
                 PC+=2;
                 NEXT;
             } else {
-                next1 = opcode4 >> 16; 
+                next1 = opcode4 >> 16;
                 PC += next1 + 2;
                 NEXT;
             }
@@ -2033,9 +2068,9 @@ int main(int argc, char* argv[]){
             RECODE(LT_NOT_JZF);    // LT/NOT/JZF
             u = pop();
             v = pop();
-            STEPCOUNT_ACTION(2);            
+            STEPCOUNT_ACTION(2);
             if (v < u) {
-                next1 = opcode4 >> 24; 
+                next1 = opcode4 >> 24;
                 PC += next1 + 3;
                 NEXT;
             } else {
@@ -2054,7 +2089,7 @@ int main(int argc, char* argv[]){
                 PC+=2;
                 NEXT;
             } else {
-                next1 = opcode4 >> 16; 
+                next1 = opcode4 >> 16;
                 PC -= next1 - 1;
                 NEXT;
             }
@@ -2065,9 +2100,9 @@ int main(int argc, char* argv[]){
             RECODE(LT_NOT_JZB);    // LT/NOT/JZB
             u = pop();
             v = pop();
-            STEPCOUNT_ACTION(2);            
+            STEPCOUNT_ACTION(2);
             if (v < u) {
-                next1 = opcode4 >> 24; 
+                next1 = opcode4 >> 24;
                 PC -= next1 - 2;
                 NEXT;
             } else {
@@ -2125,13 +2160,13 @@ int main(int argc, char* argv[]){
         #if (XOR_1_LT_INSN > 0)
         if ((OPCODE_LT<<24 | OPCODE_PUSH1<<8) == (opcode4 & 0x0ff00ff00)){
             RECODE(XOR_1_LT);    // XOR/PUSH1/LT
-            next1 = opcode4 >> 16; 
+            next1 = opcode4 >> 16;
             u = pop();
             v = pop();
-            uint64_t nu= next1; 
+            uint64_t nu= next1;
             uint64_t nv= u^v;
             PC+=3;
-            STEPCOUNT_ACTION(2);            
+            STEPCOUNT_ACTION(2);
             if (nv < nu) {
                 push(-1);
                 NEXT;
@@ -2171,40 +2206,40 @@ int main(int argc, char* argv[]){
     //-----------------
     PUT_BYTE:
         u = pop();
-        putc((int)(unsigned char)u, OUTPUT_OUTPUT);
+        putc((int)(unsigned char)u, OUTPUT_PUTBYTE);
         NEXT;
     ADD_SAMPLE:
-        a = pop(); 
-        b = pop(); 
+        a = pop();
+        b = pop();
         //NO_IO: printing instruction
-        fprintf(OUTPUT_OUTPUT, "add_sample!! %lu %lu\n", a, b);
+        fprintf(OUTPUT_PUTBYTE, "add_sample!! %lu %lu\n", a, b);
         NEXT;
     NEW_FRAME:
-        a = pop(); 
-        b = pop(); 
+        a = pop();
+        b = pop();
         u = pop();
         //NO_IO: printing instruction
-        fprintf(OUTPUT_OUTPUT, "new_frame!! %lu %lu %lu\n", a, b, u); 
+        fprintf(OUTPUT_PUTBYTE, "new_frame!! %lu %lu %lu\n", a, b, u);
         NEXT;
     SET_PIXEL:
-        a = pop(); 
-        b = pop(); 
+        a = pop();
+        b = pop();
         u = pop();
         v = pop();
         r = pop();
         //NO_IO: printing instruction
-        fprintf(OUTPUT_OUTPUT, "set_pixel!!!!! %lu %lu %lu %lu %lu\n", a, b, u, v, r); 
+        fprintf(OUTPUT_PUTBYTE, "set_pixel!!!!! %lu %lu %lu %lu %lu\n", a, b, u, v, r);
         NEXT;
     READ_PIXEL:
-        a = pop(); 
-        b = pop(); 
+        a = pop();
+        b = pop();
         //NO_IO: printing instruction
-        fprintf(OUTPUT_OUTPUT, "read_pixel!! %lu %lu\n", a, b); 
+        fprintf(OUTPUT_PUTBYTE, "read_pixel!! %lu %lu\n", a, b);
         push(0);
         NEXT;
     READ_FRAME:
         a = pop();
-        fprintf(OUTPUT_OUTPUT, "read_frame! %lu\n", a);
+        fprintf(OUTPUT_PUTBYTE, "read_frame! %lu\n", a);
         push(0);
         push(0);
         NEXT;
@@ -2212,7 +2247,11 @@ int main(int argc, char* argv[]){
     // from github.com/preservationvm/ivm-implementations/blob/master/OtherMachines/vm.c
 	READ_FRAME:
         #ifdef PARALLEL_OUTPUT
-        waitUntilProcessed(queueHandler);
+        // wait all pending output
+        while (nproc>0) {
+           if (waitpid(-1, &status, 0))
+                nproc--;
+        }
         #endif
 		ioReadFrame(pop(), &u, &v); // u -> x ; v -> y
 		push(u);
@@ -2224,8 +2263,35 @@ int main(int argc, char* argv[]){
         NEXT;
     NEW_FRAME:
 		r = pop(); v = pop(); u = pop();
-		ioFlush(); ioNewFrame(u, v, r);
-		printf("\r\f");
+        #ifdef PARALLEL_OUTPUT
+            if (nproc >= maxproc){
+                waitpid(-1, &status, 0);
+                nproc--;
+            }
+            pid_t pid = fork();
+            if (pid == 0){
+                child = 1;
+                ioFlush();
+                exit(0);
+            } else if (pid > 0) {
+                outputCounter++;
+                currentText.used = 0;
+                currentBytes.used = 0;
+                currentSamples.used = 0;
+                currentOutImage.used = 0;
+                ioNewFrame(u, v, r);
+                fflush(stdout);
+                nproc++;
+                while ((nproc > 0) && (waitpid(-1, &status, WNOHANG) > 0)){nproc--;};
+            } else {
+                printf("** Error in fork\n");
+                exit(EXIT_FAILURE);
+            }
+        #else
+		    ioFlush();
+            ioNewFrame(u, v, r);
+        #endif
+		//printf("\r\f");
         NEXT;
     SET_PIXEL:
 		b = pop(); a = pop(); r = pop();
@@ -2234,8 +2300,18 @@ int main(int argc, char* argv[]){
         NEXT;
     ADD_SAMPLE: u = pop(); v = pop(); ioAddSample(v, u); NEXT; // u -> x ; v -> y
 
-    PUT_CHAR: ioPutChar(pop()); NEXT;
-    PUT_BYTE: ioPutByte(pop()); NEXT;
+    PUT_CHAR:
+        u = pop();
+        putc((int)(unsigned char)u, OUTPUT_PUTCHAR); // Print char to stderr or stdout
+        ioPutChar(u);
+        NEXT;
+    PUT_BYTE:
+        u = pop();
+        putc((int)(unsigned char)u, OUTPUT_PUTBYTE);
+        ioPutByte(u);
+        NEXT;
+    //PUT_CHAR: ioPutChar(pop()); NEXT;
+    //PUT_BYTE: ioPutByte(pop()); NEXT;
 	#endif
 
     //-----------------
@@ -2281,12 +2357,20 @@ int main(int argc, char* argv[]){
     signal(SIGINT,SIG_DFL);
     signal(SIGSEGV,SIG_DFL);
     signal(SIGFPE,SIG_DFL);
-    
+
+    #ifdef PARALLEL_OUTPUT
+    if (child){
+        exit(0);
+    } else {
+       while (nproc>0) {
+           if (waitpid(-1, &status, 0))
+                nproc--;
+       }
+    }
+    #endif
+
     #ifdef WITH_IO
     ioFlush();
-        #ifdef PARALLEL_OUTPUT
-        waitUntilProcessed(queueHandler);
-        #endif
     #endif
     fprintf(OUTPUT_MSG, "\n");
 
@@ -2308,14 +2392,14 @@ int main(int argc, char* argv[]){
                 }
             }
         }
-        
+
         #if (defined(HISTOGRAM) && !defined(NOOPT))
-        fprintf(OUTPUT_MSG, "Binary file size: %lu bytes (%.1f %s)\n", 
+        fprintf(OUTPUT_MSG, "Binary file size: %lu bytes (%.1f %s)\n",
                              binsize, HUMANSIZE(binsize) ,HUMANPREFIX(binsize));
         fprintf(OUTPUT_MSG, "Executed %lu instructions; %lu fetches (%4.2lf insn per fetch)\n\n",
-                            steps, fetchs, (double)steps/fetchs);   
+                            steps, fetchs, (double)steps/fetchs);
         #else
-        fprintf(OUTPUT_MSG, "Binary file size: %lu bytes (%.1f %s)\n", 
+        fprintf(OUTPUT_MSG, "Binary file size: %lu bytes (%.1f %s)\n",
                              binsize, HUMANSIZE(binsize) ,HUMANPREFIX(binsize));
         fprintf(OUTPUT_MSG, "Executed %lu instructions\n\n", steps);
         #endif
@@ -2354,6 +2438,7 @@ int main(int argc, char* argv[]){
         if (nstack > ntop) {
             fprintf(OUTPUT_MSG, "(showing top %d out of %ld stack positions)\n", ntop+1, nstack);
         }
+    // Print the stack in the same format than the vm implementation
         print_stack(FORMAT_STACK_IVM, ntop);
     }
 
@@ -2364,15 +2449,15 @@ int main(int argc, char* argv[]){
         } else {
             print_insn(PC-1);
         }
-	if (error == SIGSEGV) {
-            // real seg fault again;
-	    // The script running the tests want the same behabiour in ivm64-gcc as in gcc
-	    // 	so, programs the seg.fault with gcc should seg.fault with ivm_emu
-	    char *p = 0;
-	    *p = 0;
-	} else {
-           ret_val = error | 0x80;
-	}
+		if (error == SIGSEGV) {
+		        // real seg fault again;
+			// The script running the tests want the same behabiour in ivm64-gcc as in gcc
+			// 	so, programs the seg.fault with gcc should seg.fault with ivm_emu
+			char *p = 0;
+			*p = 0;
+		} else {
+		       ret_val = error | 0x80;
+		}
     }
 
     return ret_val;

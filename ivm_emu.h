@@ -21,6 +21,8 @@
 #include <unistd.h>
 #include <setjmp.h>
 #include <signal.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 
 // native insn
 enum OPCODES {
@@ -1117,5 +1119,10 @@ BIND_NATIVE(B,PROBE_READ);
 
 // Bytes per word 
 #define BYTESPERWORD (sizeof(WORD_T)) 
+
+//void push(WORD_T v);
+//WORD_T pop();
+//char* idx2addr(unsigned long i);
+//unsigned long addr2idx(char* p);
 
 #endif

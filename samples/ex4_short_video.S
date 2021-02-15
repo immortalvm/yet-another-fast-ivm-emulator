@@ -32,6 +32,7 @@
 
 per_frame:
     new_frame* [width height sample_rate]
+    put_char! 0x7c
 
     ## Print frame number to terminal
     push! $i
