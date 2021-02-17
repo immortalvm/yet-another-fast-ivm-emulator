@@ -39,7 +39,7 @@ This ivm64 emulator takes an ivm64 binary and emulates its execution. It benefit
 
 ### How to execute?
 
-Options keep compatibility with the original ivm implementation. 
+Options keep compatibility with the original ivm implementation.
 
 ```ivm_emu [-m <size in bytes>] [-a <arg file>] [-i <input dir>] [-o <output dir>] <ivm_binary_file> ```
 
@@ -99,10 +99,10 @@ Code static_unboxing was compiled with gcc 10.2.0-ivm64-2.0. This code has no I/
 
 Code ex4_short_video.s is one of the example codes provided with the ivm application.
 
-Binaries generated with ivm v0.37. 
+Binaries generated with ivm v0.37.
 
 | benchmark                      | no optimization | optimized |  optimized +  parallel io |
-|--------------------------------|-----------------|-----------|---------------------------| 
+|--------------------------------|-----------------|-----------|---------------------------|
 | static_unboxing                |1m30s            | 35s       |               |
 | ex4_short_video.s (512 frames) |7s               | 3.6s      |  1.8s         |
 
