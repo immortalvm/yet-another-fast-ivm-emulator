@@ -57,12 +57,12 @@
 // Version
 #ifdef WITH_IO
     #ifdef PARALLEL_OUTPUT
-    #define VERSION  "v1.17-fast-io-parallel (fork)"
+    #define VERSION  "v1.17b-fast-io-parallel (fork)"
     #else
-    #define VERSION  "v1.17-fast-io (fork)"
+    #define VERSION  "v1.17b-fast-io (fork)"
     #endif
 #else
-    #define VERSION  "v1.17-fast (fork)"
+    #define VERSION  "v1.17b-fast (fork)"
 #endif
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -2302,7 +2302,7 @@ int main(int argc, char* argv[]){
 
     PUT_CHAR:
         u = pop();
-        putc((int)(unsigned char)u, OUTPUT_PUTCHAR); // Print char to stderr or stdout
+        //putc((int)(unsigned char)u, OUTPUT_PUTCHAR); // Print char to stderr or stdout
         ioPutChar(u);
         NEXT;
     PUT_BYTE:
