@@ -244,9 +244,9 @@ static void ioInitIn() {
 static void ioReadFrame(uint64_t i, uint64_t* width, uint64_t* height) {
   /*uma: if inpDir is the same as outDir, update numImpFiles because 
          new frames could have been generated*/
-  if (!strcmp(inpDir, outDir)){
+  //if (inpDir && outDir && !strcmp(inpDir, outDir)){
       numInpFiles = inpDir ? scandir(inpDir, &inpFiles, acceptPng, alphasort) : 0;
-  }
+  //}
   if (i >= numInpFiles) {
     *width = 0;
     *height = 0;
