@@ -49,7 +49,7 @@ Options keep compatibility with the original ivm implementation.
 Version v1.12 of ```ivm_emu``` can be compiled to generate executables that are useful for
 debugging. Examples of this capabilities are: ```ivm_histo```, ```ivm_trace2``` and ```ivm_trace3```.
 
-To allow dinamically activation/deactivation of program tracing, and to extract information of
+To allow dynamically activation/deactivation of program tracing, and to extract information of
 executed instructions in a code section, the ```Yet another IVM emulator``` admits three unnused
 opcodes: 0xf0, 0xf1, 0xf2 and 0xf3.
 

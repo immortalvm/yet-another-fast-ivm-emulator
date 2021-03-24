@@ -378,7 +378,8 @@ static void ioPutChar(uint32_t c) {
   int start = currentText.used;
   bytesPutChar(&currentText, c);
   int len = currentText.used - start;
-  printf("%.*s", len, currentText.array + start);
+  //printf("%.*s", len, currentText.array + start); //original
+  fprintf(stderr, "%.*s", len, currentText.array + start); //put_char to stderr as "ivm run" does
 }
 
 static void ioPutByte(uint8_t x) {

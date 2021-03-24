@@ -57,12 +57,12 @@
 // Version
 #ifdef WITH_IO
     #ifdef PARALLEL_OUTPUT
-    #define VERSION  "v1.17c-fast-io-parallel (fork)"
+    #define VERSION  "v1.17d-fast-io-parallel (fork)"
     #else
-    #define VERSION  "v1.17c-fast-io (fork)"
+    #define VERSION  "v1.17d-fast-io (fork)"
     #endif
 #else
-    #define VERSION  "v1.17c-fast (fork)"
+    #define VERSION  "v1.17d-fast (fork)"
 #endif
 
 ////////////////////////////////////////////////////////////////////////////////
