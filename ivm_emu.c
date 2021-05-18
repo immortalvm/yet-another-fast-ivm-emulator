@@ -2451,7 +2451,7 @@ int main(int argc, char* argv[]){
         }
 		if (error == SIGSEGV) {
 		        // real seg fault again;
-			// The script running the tests want the same behabiour in ivm64-gcc as in gcc
+			// The script running the tests want the same behaviour in ivm64-gcc as in gcc
 			// 	so, programs the seg.fault with gcc should seg.fault with ivm_emu
 			char *p = 0;
 			*p = 0;
