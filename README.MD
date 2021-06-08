@@ -85,25 +85,20 @@ To obtain a binary without the non-standard opcodes, just compile the program wi
 This way, all sentences like  ```ivm64_set_probe(1)```,```ivm64_trace_off```,```ivm64_trace_hard```,
 etc, are ignored.
 
-
-
 ### Execution times
 
-These experiments were conducted on an Intel(R) Xeon(R) Gold 6154 CPU @ 3.00GHz, where the emulator was compiled with gcc 7.4.0.
+These experiments were conducted on an Intel(R) Core(TM) i7-3770 CPU @ 3.40GHz, where the emulator was compiled with gcc 7.4.0.
 
-Code static_unboxing was compiled with gcc 8.3.0-ivm64-1.0-rc3. This code has no I/O instructions but ```put_char```.
+Code static_unboxing was compiled with gcc 10.2.0-ivm64-2.0. This code has no I/O instructions but ```put_char```.
 
 Code ex4_short_video.s is one of the example codes provided with the ivm application.
 
-Binaries generated with ivm v0.28. 
+Binaries generated with ivm v0.37.
 
 | benchmark                      | no optimization | optimized |  optimized +  parallel io |
-|--------------------------------|-----------------|-----------|---------------------------| 
-| static_unboxing                |4m50s            | 1m45s     |               |
-| ex4_short_video.s (512 frames) |3m59s            | 2m97s     |  0.93s        |
-
-
-
+|--------------------------------|-----------------|-----------|---------------------------|
+| static_unboxing                |1m30s            | 35s       |               |
+| ex4_short_video.s (512 frames) |7s               | 3.6s      |  1.8s         |
 
 
 
