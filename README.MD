@@ -1,6 +1,7 @@
 # Yet another (fast) IVM emulator
 
-**The parallel output of this branch is based on processes instead of threads . It includes one single .c file and two headers.**
+**The parallel output of this branch is based on processes instead of threads.
+It includes one single .c file and two headers.**
 
 This ivm64 emulator takes an ivm64 binary and emulates its execution. It benefits from two kind of optimizations:
 
