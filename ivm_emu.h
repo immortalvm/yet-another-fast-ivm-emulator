@@ -8,7 +8,7 @@
   Sergio Romero Montiel
   Oscar Plata Gonzalez
 
- Date: Mar 2020 
+ Date: Mar 2020
 */
 
 #ifndef __IVM_EMU_H
@@ -23,6 +23,8 @@
 #include <signal.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+
+#define IVM_BINARY_VERSION 2
 
 // native insn
 enum OPCODES {
@@ -57,6 +59,7 @@ enum OPCODES {
 	OPCODE_NOT          = 42,
 	OPCODE_XOR          = 43,
 	OPCODE_POW2         = 44,
+    OPCODE_CHECK        = 48,
 // recode also native insn to avoid overload on successive accesses
 #if (defined(RECODE_NATIVE_INSN) || defined(RECODE_INSN))
 	OPCODE_NEW_NOP,
@@ -452,7 +455,9 @@ enum OPCODES {
 	OPCODE_PROBE      = 0xf2,
 	OPCODE_PROBE_READ = 0xf3,
 
+
 // native IO insn
+    OPCODE_READ_CHAR   = 0xf8,
 	OPCODE_PUT_BYTE   = 0xf9,
 	OPCODE_PUT_CHAR   = 0xfa,
 	OPCODE_ADD_SAMPLE = 0xfb,
@@ -509,6 +514,8 @@ ATTR_NATIVE(A,OR,0); \
 ATTR_NATIVE(A,NOT,0); \
 ATTR_NATIVE(A,XOR,0); \
 ATTR_NATIVE(A,POW2,0); \
+ATTR_NATIVE(A,CHECK,0); \
+ATTR_NATIVE(A,READ_CHAR,0); \
 ATTR_NATIVE(A,PUT_BYTE,0); \
 ATTR_NATIVE(A,PUT_CHAR,0); \
 ATTR_NATIVE(A,ADD_SAMPLE,0); \
@@ -835,6 +842,8 @@ BIND_NATIVE(B,OR); \
 BIND_NATIVE(B,NOT); \
 BIND_NATIVE(B,XOR); \
 BIND_NATIVE(B,POW2); \
+BIND_NATIVE(B,CHECK); \
+BIND_NATIVE(B,READ_CHAR); \
 BIND_NATIVE(B,PUT_BYTE); \
 BIND_NATIVE(B,PUT_CHAR); \
 BIND_NATIVE(B,ADD_SAMPLE); \
@@ -1117,8 +1126,8 @@ BIND_NATIVE(B,PROBE_READ);
 // Type for words (stack unit)
 #define WORD_T uint64_t
 
-// Bytes per word 
-#define BYTESPERWORD (sizeof(WORD_T)) 
+// Bytes per word
+#define BYTESPERWORD (sizeof(WORD_T))
 
 //void push(WORD_T v);
 //WORD_T pop();

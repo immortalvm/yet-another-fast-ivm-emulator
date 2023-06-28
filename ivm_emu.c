@@ -9,7 +9,7 @@
   Sergio Romero Montiel
   Oscar Plata Gonzalez
 
- Date: Mar 2020 - Feb 2021
+ Date: Mar 2020 - Feb 2021 - Jun 2023
 
 
  Input/output version:
@@ -40,7 +40,9 @@
 
     gcc -Ofast -DVERBOSE=1 ivm_emu.c  # Enable verbose
     gcc -Ofast -DVERBOSE=2 ivm_emu.c  #
-    gcc -Ofast -DVERBOSE=3 ivm_emu.c  #
+    gcc -Ofast -DVERBOSE=3 ivm_emu.c  # Enable verbose (trace), compact format
+    gcc -Ofast -DVERBOSE=4 ivm_emu.c  # Enable verbose (trace), detailed format
+
     gcc -Ofast -DSTEPCOUNT ivm_emu.c  # Enable instruction count
     gcc -Ofast -DNOOPT     ivm_emu.c  # Disable optimizations
     gcc -Ofast -DHISTOGRAM ivm_emu.c  # Enable insn. pattern histogram
@@ -54,15 +56,15 @@
  Note that this number refers to forked processes, although named NUM_THREADS
 */
 
-// Version
+// Version v2.0 compatible with ivm implementation v1.1
 #ifdef WITH_IO
     #ifdef PARALLEL_OUTPUT
-    #define VERSION  "v1.17d-fast-io-parallel (fork)"
+    #define VERSION  "v2.0.1-fast-io-parallel"
     #else
-    #define VERSION  "v1.17d-fast-io (fork)"
+    #define VERSION  "v2.0.1-fast-io"
     #endif
 #else
-    #define VERSION  "v1.17d-fast (fork)"
+    #define VERSION  "v2.0.1-fast"
 #endif
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -73,6 +75,11 @@
 #define OPTENABLED  1
 #endif
 
+
+////////////////////////////////////////////////////////////////////////////////
+// Define FPE_ENABLED to enable FPE exception for "divide by zero" instead
+// of returning 0 when dividing by zero
+#define FPE_ENABLED_ 
 
 ////////////////////////////////////////////////////////////////////////////////
 // The FOLLOWING is only available if OPTENABLED==1
@@ -296,12 +303,17 @@
 // include emulator header file after defines
 #include "ivm_emu.h"
 
+// Some error codes (raise with longjmp like a signal does)
+#define WRONG_BINARY_VERSION 1009
+#define WRONG_BINARY_VERSION_RET_VALUE 9
+
 // Global options
 // Default memory size in bytes
-#define MEMBYTES (16UL*1024*1024)
+#define MEMBYTES (512UL*1024*1024)
 char *opt_bycodefile = NULL;           // Binary bytecode file name
 unsigned long opt_maxmem = MEMBYTES;   // Memory size (-m <number>)
 char* argFile = NULL;
+char* envFile = NULL;
 char* inpDir = NULL;
 char* outDir = NULL;
 
@@ -359,6 +371,8 @@ unsigned long execStart = 0; // First position of the bytecode in memory
 unsigned long execEnd= 0;    // Last position of the bytecode in memory
 unsigned long argStart = 0;  // First position of the argument file in memory
 unsigned long argEnd= 0;     // Last position of the argument file in memory
+unsigned long envStart = 0;  // First position of the environment file in memory
+unsigned long envEnd= 0;     // Last position of the environment file in memory
 
 typedef struct insn_attr {
     const char *name; // Name of the instruction
@@ -399,12 +413,15 @@ int status;
 */
 int get_options(int argc, char* argv[]) {
     int i, c;
+    int na = 0; // Number of appearances of flag '-a': ivm_emu ... -a first -a second ...
     while ((c = getopt(argc, argv, "m:o:i:a:L:")) != -1) {
         switch (c) {
           case 'm': opt_maxmem = atol(optarg)>0?atol(optarg):opt_maxmem; break;
           case 'o': outDir = optarg; break;
           case 'i': inpDir = optarg; break;
-          case 'a': argFile = optarg; break;
+          case 'a': if (na==0) {argFile = optarg; na++; break;} // The 1st. -a argument is the argument file
+                    if (na==1) {envFile = optarg; na++; break;} // The 2nd. -a argument is the environment file
+                    break;
           case 'L': segment_start = atol(optarg)>0?atol(optarg):0; break;
           case '?': // pass through
           default:
@@ -424,7 +441,7 @@ int get_options(int argc, char* argv[]) {
     if (!opt_bycodefile) {
         fprintf(OUTPUT_MSG, "Usage:\n\t%s [-m <size in bytes>] "
                             "[-o <output dir>] [-i <input dir>] "
-                            "[-a <arg file>] <ivm binary file>\n",
+                            "[-a <arg file> [-a <env file>]] <ivm binary file>\n",
                 argv[0]);
         return 0;
     }
@@ -438,10 +455,18 @@ int get_options(int argc, char* argv[]) {
             fprintf(OUTPUT_MSG, "inpDir=%s\n", inpDir);
         if (argFile)
             fprintf(OUTPUT_MSG, "argFile=%s\n", argFile);
+        if (envFile)
+            fprintf(OUTPUT_MSG, "envFile=%s\n", envFile);
     #endif
 
     return 1;
 }
+
+// Address translation
+char* idx2addr(unsigned long i);
+unsigned long addr2idx(char* p);
+inline char* idx2addr(unsigned long i){ return (char *)&(Mem[i]); }
+inline unsigned long addr2idx(char* p){ return (unsigned long)p - (unsigned long)Mem; }
 
 /*
     Read a ivm binary bycode file and load it into memory
@@ -481,21 +506,107 @@ int ivm_read_bin(char *filename, unsigned long offset, unsigned long *m_start, u
     return 0;
 }
 
+//#if (VERBOSE >= 3)
+#include "ivm_emu_hash_table.h"
+sym_table_t *Ts = NULL; // global struct for the symbol table
+
+/*
+  Get the name of symbol file from binary filename.
+  Basically, replace .b or .bin extension by .sym
+*/
+char *get_ivm_sym_filename(char *binfilename){
+    // The sym filename is got by replacing binary file extension by '.sym' in the binary filename
+    char *sym_ext = ".sym";
+    long l = strlen(binfilename);
+    char *fn = (char*)calloc(l*sizeof(char) + sizeof(sym_ext) + 8, 1);
+    strncpy(fn, binfilename, l+1);
+    // Replace binary file extension by '.sym'
+    char *p = fn + l;
+    do{ p--; } while (p>=fn && *p != '.');
+    if (p<fn) p = fn + l;
+    strcpy(p, sym_ext);
+    return fn;
+}
+
+/*
+    Read a ivm sym file with the symbol table.
+    Return the number of labels found.
+    (this may be optional, so this function never calls exit())
+
+    The sym file has the following contents, with pairs (label, pc)
+    after the section '--Labels--':
+        --Previous--
+
+        --Size--
+        3609
+        --Relative--
+        --Constant--
+        --Labels--
+        z/main	686
+        z/.LIVM_next	3424
+        z/.credits	3419
+        z/_start	50
+        z/_exit	700
+        z/.L7.l.55d._call_atexit.c	1093
+        z/.XSC	3461
+        z/__IVM64_exit_jb__	798
+            ...
+        --Spacers--
+*/
+long ivm_read_sym(char *filename)
+{
+    FILE *fd;
+    fd = fopen(filename, "r");
+    if (!fd){
+        //fprintf(OUTPUT_MSG, "Can't open sym file '%s'\n", filename);
+        return 0;
+    }
+
+    long nlabels=0; // Number of labels read
+    #define SYM_FILE_MAXLINE 4096
+    char line[SYM_FILE_MAXLINE], label[SYM_FILE_MAXLINE], *l;
+
+    do {
+        l = fgets(line, SYM_FILE_MAXLINE-1, fd); // note that gets includes \n
+    } while (l && strcmp("--Labels--\n", line));
+
+    if (strcmp("--Labels--\n", line)){
+        // The open file has no --Labels-- section
+        return 0;
+    }
+
+    int updatesym = 0; // If a same PC is associated to several labels,
+                       // do not update it in the symbol table, thus keep the first one
+                       // in the .sym file
+
+    // Avoid stack smashing in fscanf (The Practice of Programming, Kernighan and Pike)
+    char format[32];
+    snprintf(format, sizeof(format), "%%%ds %%ld", (int)(sizeof(label)-1));
+    do {
+        long pclabel;
+        //long nreads = fscanf(fd, "%s %ld", label, &pclabel);
+        long nreads = fscanf(fd, format, label, &pclabel);
+        if (nreads != 2) break;
+        putsym_hash(Ts, pclabel, label, updatesym);
+        nlabels++;
+    } while (1);
+
+    fclose(fd);
+    return nlabels;
+}
+//#endif // VERBOSE >= 3
+
 
 /*
     Print the last n elements of the stack
     FORMAT_STACK_ROW: for tracing the stack, elements in a row
+    FORMAT_STACK_IVM_COMPACT_ROW: for tracing the stack, elements
+                      in a row like the ivm application
     FORMAT_STACK_IVM: to print at the end the resulting stack
                       like the ivm application
 */
 
-// Address translation
-char* idx2addr(unsigned long i);
-unsigned long addr2idx(char* p);
-inline char* idx2addr(unsigned long i){ return (char *)&(Mem[i]); }
-inline unsigned long addr2idx(char* p){ return (unsigned long)p - (unsigned long)Mem; }
-
-enum format_stack {FORMAT_STACK_ROW, FORMAT_STACK_IVM};
+enum format_stack {FORMAT_STACK_ROW, FORMAT_STACK_IVM, FORMAT_STACK_IVM_COMPACT_ROW};
 void print_stack(int format, unsigned int n){
     int i;
 
@@ -518,14 +629,35 @@ void print_stack(int format, unsigned int n){
         fprintf(OUTPUT_MSG, "]\n");
     }
 
+    // Format of ivm implementation for the final stack after the program ends
     if (format == FORMAT_STACK_IVM) {
         fprintf(OUTPUT_MSG, "End stack:\n");
         for (p=SP, i=1; p<=p_start; p=(char*)(((WORD_T*)p)+1), i++){
             WORD_T val = *((WORD_T*)p);
-            fprintf(OUTPUT_MSG, "0x..%06lx %ld\n", val & 0xffffff, val);
+            fprintf(OUTPUT_MSG, "0x..%06lx %8ld\n", val & 0xffffff, val);
         }
         fprintf(OUTPUT_MSG, "\n");
     }
+
+    // Format of the ivm implementation for each line of the trace
+    if (format == FORMAT_STACK_IVM_COMPACT_ROW) {
+        fprintf(OUTPUT_MSG, " start+%#lx: ", addr2idx(SP));
+        for (p=p_start; p>=SP; p=(char*)(((WORD_T*)p)-1)){
+            WORD_T val = *((WORD_T*)p);
+            //fprintf(OUTPUT_MSG, " %#lx", val);
+
+            // Values in the range of memory will be printed as
+            // "@start+offset"
+            char* valp = (char*)val;
+            if (valp <= p_start && valp>=Mem) {
+                fprintf(OUTPUT_MSG, " @start+%#-6lx", addr2idx(valp));
+            } else {
+                fprintf(OUTPUT_MSG, " %ld", val);
+            }
+        }
+        fprintf(OUTPUT_MSG, "\n");
+    }
+
 }
 
 #if (VERBOSE >= 3)
@@ -536,16 +668,16 @@ int ivm_mem_dump(unsigned long start, unsigned long end){
     unsigned long i,k;
     int rowbytes = 16; // bytes shown per row
 
-    fprintf(OUTPUT_MSG, "%#016lx\t", start);
+    fprintf(OUTPUT_MSG, "%#016lx-..\t", start);
     for (i = start; i <= end; i++){
         for (k = i; k <= MIN(i + rowbytes - 1, end); k++) {
             fprintf(OUTPUT_MSG, "%02x  ", (unsigned char)Mem[k]);
         }
         i = k-1;
         fprintf(OUTPUT_MSG, "\n");
-        fprintf(OUTPUT_MSG, "%#016lx\t", k);
+        fprintf(OUTPUT_MSG, "%#016lx-..\t", k);
     }
-    fprintf(OUTPUT_MSG, "\n");
+    fprintf(OUTPUT_MSG, "\n\n");
 }
 #endif
 
@@ -557,6 +689,34 @@ void print_stack_status(){
     fprintf(OUTPUT_MSG, "\tSP = %p\n", SP);
     fprintf(OUTPUT_MSG, "\tTOS = %#lx\n", (*(WORD_T*)SP) );
     print_stack(FORMAT_STACK_ROW, 16);
+}
+
+/*
+    Print the value of SP and the last n elements of the stack
+    Compact version (similar to F# ivm implementation)
+*/
+void print_stack_status_compact(char *pc){
+    static int first = 1; // In the first line of the trace,
+                          // do no print the stack (left blank)
+    if (first) {
+        first = 0;
+    } else {
+        print_stack(FORMAT_STACK_IVM_COMPACT_ROW, 16);
+    #if (VERBOSE >= 3)
+        // Print a line with the label corresponding to this PC
+        // if it was inserted in the symbol table
+        // This line with the label has this format:
+        // -- z/.LC012 --
+        symrec* r = getsym_hash(Ts, addr2idx(pc));
+        if (r) {
+            fprintf(OUTPUT_MSG, "-- %s --\n", r->label);
+        }
+     #endif
+    }
+    // This PC,INSN information is printed for the next trace line
+    unsigned char op_code = *pc;
+    fprintf(OUTPUT_MSG, "start+%#-9lx: %-9s ",
+                        addr2idx(pc), insn_attributes[op_code].name);
 }
 #endif
 
@@ -590,6 +750,13 @@ void print_insn(char *pc){
             break;
     }
     fprintf(OUTPUT_MSG, "\n");
+    #if (VERBOSE >= 3)
+        // Print the label corresponding to this PC value
+        symrec* r = getsym_hash(Ts, addr2idx(pc));
+        if (r) {
+            fprintf(OUTPUT_MSG, "--> %s (=%ld)\n", r->label, r->pc);
+        }
+     #endif
 }
 
 
@@ -609,6 +776,7 @@ inline WORD_T pop(){ WORD_T v=*((WORD_T*)SP); SP+=BYTESPERWORD; return v; }
 
 
 int main(int argc, char* argv[]){
+
     int error = 0; // Any error that stops simulation
     uint8_t opcode1;
     #ifndef NOOPT
@@ -628,8 +796,6 @@ int main(int argc, char* argv[]){
     uint16_t next2;
     uint32_t next4;
     uint64_t next8;
-
-
 
     // Instruction operand (signed, only for jump offset)
     int8_t  next1s;
@@ -651,7 +817,7 @@ int main(int argc, char* argv[]){
     char *filename;
 
     fprintf(OUTPUT_MSG, "Yet another ivm emulator, %s\n", VERSION);
-    fprintf(OUTPUT_MSG, "Compatible with ivm-0.37\n");
+    fprintf(OUTPUT_MSG, "Compatible with ivm-2.0\n");
     char *str = "Compiled with:";
     #if (VERBOSE>0)
         fprintf(OUTPUT_MSG, "%s -DVERBOSE=%d", str, VERBOSE);
@@ -677,6 +843,10 @@ int main(int argc, char* argv[]){
         fprintf(OUTPUT_MSG, "%s -DPARALLEL_OUTPUT", str);
         str = "";
     #endif
+    #ifdef FPE_ENABLED 
+        fprintf(OUTPUT_MSG, "%s -DFPE_ENABLED", str);
+        str = "";
+    #endif
     if (str[0] == '\0') printf("\n");
 
     if (!get_options(argc, argv)){
@@ -689,6 +859,7 @@ int main(int argc, char* argv[]){
 
     // Prepare the memory
     Mem = (char*)malloc(MemBytes * sizeof(char));
+    memset(Mem, 0, MemBytes);
 
     #ifndef NO_IO
     ioInitIn();
@@ -720,6 +891,26 @@ int main(int argc, char* argv[]){
     fprintf(OUTPUT_MSG, "\n");
     #endif
 
+    // Read sym file if available (to show labels when tracing or in case of error)
+    //#if (VERBOSE >= 3)
+    char *symfile = get_ivm_sym_filename(filename);
+
+    Ts = init_symtable(12346791);
+    long nsym = ivm_read_sym(symfile);  // ivm_read_sym uses the global symbol table Ts
+
+    #if (VERBOSE >=1)
+    if (nsym>0) {
+        fprintf(OUTPUT_MSG, "Read %ld symbols from sym file '%s'\n\n", nsym, symfile);
+    } else {
+        fprintf(OUTPUT_MSG, "No labels from .sym file\n"
+                            "(perhaps no .sym file found; .sym file must have "
+                            "the same name as binary, replacing extension by .sym)\n\n");
+    }
+    //print_symtable(Ts); //debug
+    #endif
+    free(symfile);
+    //#endif
+
     *(uint64_t*)&Mem[execEnd+1]=0;
 
     // Read argument file
@@ -729,6 +920,17 @@ int main(int argc, char* argv[]){
         #if (VERBOSE>0)
         fprintf(OUTPUT_MSG, "First byte of the argument file indexed by %#lx (=%ld), last byte by %#lx (=%ld)\n",
                 argStart, argStart, argEnd, argEnd);
+        fprintf(OUTPUT_MSG, "\n");
+        #endif
+    }
+
+    // Read environment file (it follows argument file)
+    if (envFile){
+        ivm_read_bin(envFile, argEnd+9, &envStart, &envEnd);
+        *(uint64_t*)(&Mem[argEnd+1]) = envEnd - envStart + 1;
+        #if (VERBOSE>0)
+        fprintf(OUTPUT_MSG, "First byte of the environment file indexed by %#lx (=%ld), last byte by %#lx (=%ld)\n",
+                envStart, envStart, envEnd, envEnd);
         fprintf(OUTPUT_MSG, "\n");
         #endif
     }
@@ -745,7 +947,9 @@ int main(int argc, char* argv[]){
 
     #if (VERBOSE == 2)
         #define VERBOSE_ACTION do{ if (trace>1) print_stack_status(); if (trace) print_insn(PC-1);} while(0)
-    #elif (VERBOSE >= 3)
+    #elif (VERBOSE == 3)
+        #define VERBOSE_ACTION do{ print_stack_status_compact(PC-1);} while(0)
+    #elif (VERBOSE >= 4)
         #define VERBOSE_ACTION do{ print_stack_status(); print_insn(PC-1);} while(0)
     #else
         #define VERBOSE_ACTION
@@ -2035,12 +2239,20 @@ int main(int argc, char* argv[]){
     DIV:
         u = pop();
         v = pop();
+        #ifdef FPE_ENABLED
         push(v / u);
+        #else
+        push(u == 0 ? 0 : v / u);
+        #endif
         NEXT;
     REM:
         u = pop();
         v = pop();
+        #ifdef FPE_ENABLED
         push(v % u);
+        #else
+        push(u == 0 ? 0 : v % u);
+        #endif
         NEXT;
     //-----------------
     // Logical works unsigned
@@ -2193,7 +2405,14 @@ int main(int argc, char* argv[]){
     //-----------------
     POW2:
         u = pop();
-        push(1UL << u);
+        push((u <= 63) ? (1UL << u) : 0);
+        NEXT;
+    //-----------------
+    CHECK:
+        x = pop();
+        if (x > IVM_BINARY_VERSION) {
+            longjmp(env, WRONG_BINARY_VERSION);
+        }
         NEXT;
     //-----------------
     // OUTPUT
@@ -2242,6 +2461,14 @@ int main(int argc, char* argv[]){
         fprintf(OUTPUT_PUTBYTE, "read_frame! %lu\n", a);
         push(0);
         push(0);
+        NEXT;
+    READ_CHAR:
+        x = getchar();
+        if (x == EOF) {
+            clearerr(stdin);
+            x=4; // ascii 4 = ^D
+        }
+        push(x);
         NEXT;
 	#else
     // from github.com/preservationvm/ivm-implementations/blob/master/OtherMachines/vm.c
@@ -2298,8 +2525,10 @@ int main(int argc, char* argv[]){
 		v = pop(); u = pop();
 		ioSetPixel(u, v, r, a, b); // u -> x ; v -> y ; a -> r
         NEXT;
-    ADD_SAMPLE: u = pop(); v = pop(); ioAddSample(v, u); NEXT; // u -> x ; v -> y
-
+    ADD_SAMPLE:
+        u = pop(); v = pop();
+        ioAddSample(v, u); // u -> x ; v -> y
+        NEXT;
     PUT_CHAR:
         u = pop();
         //putc((int)(unsigned char)u, OUTPUT_PUTCHAR); // Print char to stderr or stdout
@@ -2312,6 +2541,13 @@ int main(int argc, char* argv[]){
         NEXT;
     //PUT_CHAR: ioPutChar(pop()); NEXT;
     //PUT_BYTE: ioPutByte(pop()); NEXT;
+    READ_CHAR:
+        u = ioReadChar();
+        if (feof(stdin)) {
+            clearerr(stdin);
+        }
+        push(u);
+        NEXT;
 	#endif
 
     //-----------------
@@ -2374,8 +2610,6 @@ int main(int argc, char* argv[]){
     #endif
     fprintf(OUTPUT_MSG, "\n");
 
-
-
     #define HUMANSIZE(x) ((float)((x>1e9)?(x/1.0e9):(x>1.0e6)?(x/1.0e6):(x>1e3)?(x/1.0e3):x))
     #define HUMANPREFIX(x)  ((x>1e9)?"GB":(x>1e6)?"MB":(x>1e3)?"KB":"B")
 
@@ -2418,13 +2652,19 @@ int main(int argc, char* argv[]){
     }
     #endif
 
+    //#if (VERBOSE >= 3)
+    destroy_symtable(Ts);
+    //#endif
+
     int ret_val;
     if (error == SIGSEGV) {
-        fprintf(OUTPUT_MSG, "error: segmentation fault\n");
+        fprintf(OUTPUT_MSG, "error: segmentation fault\n\n");
     } else  if (error == SIGFPE) {
-        fprintf(OUTPUT_MSG, "error: division by zero\n");
+        fprintf(OUTPUT_MSG, "error: division by zero\n\n");
     } else if (error == SIGINT) {
-        fprintf(OUTPUT_MSG, "Program terminated by user request ^C\n");
+        fprintf(OUTPUT_MSG, "Program terminated by user request ^C\n\n");
+    } else if (error == WRONG_BINARY_VERSION) {
+        fprintf(OUTPUT_MSG, "Incompatible binary version: %ld\n\n", x);
     }
 
     if ( addr2idx(SP) < execStart || addr2idx(SP) >= MemBytes) {
@@ -2433,13 +2673,20 @@ int main(int argc, char* argv[]){
         ret_val = EXIT_FAILURE;
     } else {
         unsigned long nstack = (idx2addr(MemBytes - BYTESPERWORD) - SP)/sizeof(WORD_T);
-        int ntop = 5;
+        // If IVM_EMU_MAX_DUMPED_STACK is defined use as the max number of stack position shown
+        // otherwise, show all (nstack)
+        char *ntop_str =  getenv("IVM_EMU_MAX_DUMPED_STACK");
+        unsigned int ntop = ntop_str?atoi(ntop_str):nstack;
+
         ret_val = *((uint64_t*)SP);
-        if (nstack > ntop) {
-            fprintf(OUTPUT_MSG, "(showing top %d out of %ld stack positions)\n", ntop+1, nstack);
-        }
-    // Print the stack in the same format than the vm implementation
+
+        // Print the stack in the same format than the vm implementation
         print_stack(FORMAT_STACK_IVM, ntop);
+        if (nstack > ntop) {
+            fprintf(OUTPUT_MSG, "(IVM_EMU_MAX_DUMPED_STACK defined: showing top %d out of %ld stack positions)\n", ntop+1, nstack);
+        } else {
+            fprintf(OUTPUT_MSG, "(showing all stack positions; define IVM_EMU_MAX_DUMPED_STACK to shorten)\n");
+        }
     }
 
     if (error) {
@@ -2449,15 +2696,27 @@ int main(int argc, char* argv[]){
         } else {
             print_insn(PC-1);
         }
+
+        //#if (VERBOSE>=3)
+        // In case of error, print the nearest labels if available
+        symrec *symL, *symU;
+        find_nearest_label(Ts, addr2idx(PC-1), &symL, &symU);
+        if (symL) fprintf(stderr, "   Nearest lower label: %s\n", symL->label);
+        if (symU) fprintf(stderr, "   Nearest upper label: %s\n", symU->label);
+        //#endif
+
 		if (error == SIGSEGV) {
-		        // real seg fault again;
+		    // real seg fault again;
 			// The script running the tests want the same behaviour in ivm64-gcc as in gcc
 			// 	so, programs the seg.fault with gcc should seg.fault with ivm_emu
 			char *p = 0;
 			*p = 0;
-		} else {
-		       ret_val = error | 0x80;
+		} else if (error == WRONG_BINARY_VERSION){
+            ret_val = WRONG_BINARY_VERSION_RET_VALUE;
+        } else {
+		    ret_val = error | 0x80;
 		}
+
     }
 
     return ret_val;

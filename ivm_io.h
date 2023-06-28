@@ -204,6 +204,29 @@ static void bytesPutChar(Bytes* b, uint32_t c) {
   }
 }
 
+// Read UTF-32 character, assuming UTF-8 input.
+// NB. Actual EOF is converted into the EOF character (^D).
+static uint32_t ioReadChar() {
+  const uint32_t eof = (uint32_t) 4;
+  int c0 = getc(stdin);
+  if (c0 == EOF) return eof;
+  uint32_t u0 = (uint32_t) c0;
+  if (c0 < 0x80) return u0;
+  u0 &= 0x1f;
+  int c1 = getc(stdin);
+  if (c1 == EOF) return eof;
+  uint32_t u1 = (uint32_t) (c1 & 0x3f);
+  if (c0 < 0xe0) return (u0 << 6) + u1;
+  int c2 = getc(stdin);
+  if (c2 == EOF) return eof;
+  uint32_t u2 = (uint32_t) (c2 & 0x3f);
+  if (c0 < 0xf0) return (u0 << 12) + (u1 << 6) + u2;
+  int c3 = getc(stdin);
+  if (c3 == EOF) return eof;
+  uint32_t u3 = (uint32_t) (c3 & 0x3f);
+  return (u0 << 18) + (u1 << 12) + (u2 << 6) + u3;
+}
+
 static void bytesPutSample(Bytes* b, uint16_t left, uint16_t right) {
   bytesMakeSpace(b, 4);
   uint16_t* pos = (uint16_t*) (b->array + b->used);
