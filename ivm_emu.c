@@ -59,13 +59,22 @@
 // Version v2.0 compatible with ivm implementation v1.1
 #ifdef WITH_IO
     #ifdef PARALLEL_OUTPUT
-    #define VERSION  "v2.0.1-fast-io-parallel"
+    #define VERSION  "v2.1-fast-io-parallel"
     #else
-    #define VERSION  "v2.0.1-fast-io"
+    #define VERSION  "v2.1-fast-io"
     #endif
 #else
-    #define VERSION  "v2.0.1-fast"
+    #define VERSION  "v2.1-fast"
 #endif
+
+#ifndef IVM_TERMIOS
+#define IVM_TERMIOS 1
+#endif
+
+////////////////////////////////////////////////////////////////////////////////
+// Define FPE_ENABLED to enable FPE exception for "divide by zero" instead
+// of returning 0 when dividing by zero
+#define FPE_ENABLED_ 
 
 ////////////////////////////////////////////////////////////////////////////////
 // Disable optimizations: -DNOOPT
@@ -74,12 +83,6 @@
 #else
 #define OPTENABLED  1
 #endif
-
-
-////////////////////////////////////////////////////////////////////////////////
-// Define FPE_ENABLED to enable FPE exception for "divide by zero" instead
-// of returning 0 when dividing by zero
-#define FPE_ENABLED_ 
 
 ////////////////////////////////////////////////////////////////////////////////
 // The FOLLOWING is only available if OPTENABLED==1
@@ -299,7 +302,7 @@
 
 
 // HEADERS
-
+#include <termios.h>
 // include emulator header file after defines
 #include "ivm_emu.h"
 
@@ -816,8 +819,22 @@ int main(int argc, char* argv[]){
 
     char *filename;
 
+    #if (!IVM_TERMIOS)
+    #define TTY_DEF
+    #define TTY_NEW
+    #else
+    struct termios tty_def, tty_new;
+    tcgetattr(STDIN_FILENO, &tty_def);  // save terminal characteristics
+    tty_new = tty_def;
+    tty_new.c_lflag &= ~(ICANON | ECHO);
+    tty_new.c_cc[VTIME] = 0;
+    tty_new.c_cc[VMIN] = 1;
+    #define TTY_DEF do{tcsetattr(STDIN_FILENO, TCSANOW, &tty_def );}while(0)
+    #define TTY_NEW do{tcsetattr(STDIN_FILENO, TCSANOW, &tty_new );}while(0)
+    #endif
+
     fprintf(OUTPUT_MSG, "Yet another ivm emulator, %s\n", VERSION);
-    fprintf(OUTPUT_MSG, "Compatible with ivm-2.0\n");
+    fprintf(OUTPUT_MSG, "Compatible with ivm-2.1\n");
     char *str = "Compiled with:";
     #if (VERBOSE>0)
         fprintf(OUTPUT_MSG, "%s -DVERBOSE=%d", str, VERBOSE);
@@ -861,6 +878,7 @@ int main(int argc, char* argv[]){
     Mem = (char*)malloc(MemBytes * sizeof(char));
     memset(Mem, 0, MemBytes);
 
+    
     #ifndef NO_IO
     ioInitIn();
     ioInitOut();
@@ -2417,7 +2435,7 @@ int main(int argc, char* argv[]){
     //-----------------
     // OUTPUT
     //-----------------
-	#ifdef NO_IO
+    #ifdef NO_IO
     PUT_CHAR:
         u = pop();
         putc((int)(unsigned char)u, OUTPUT_PUTCHAR);
@@ -2463,16 +2481,18 @@ int main(int argc, char* argv[]){
         push(0);
         NEXT;
     READ_CHAR:
+        TTY_NEW;
         x = getchar();
+        TTY_DEF;
         if (x == EOF) {
             clearerr(stdin);
             x=4; // ascii 4 = ^D
         }
         push(x);
         NEXT;
-	#else
+    #else
     // from github.com/preservationvm/ivm-implementations/blob/master/OtherMachines/vm.c
-	READ_FRAME:
+    READ_FRAME:
         #ifdef PARALLEL_OUTPUT
         // wait all pending output
         while (nproc>0) {
@@ -2480,16 +2500,16 @@ int main(int argc, char* argv[]){
                 nproc--;
         }
         #endif
-		ioReadFrame(pop(), &u, &v); // u -> x ; v -> y
-		push(u);
-		push(v);
+        ioReadFrame(pop(), &u, &v); // u -> x ; v -> y
+        push(u);
+        push(v);
         NEXT;
     READ_PIXEL:
-		v = pop(); u = pop();
-		push(ioReadPixel(u, v)); // u -> x ; v -> y
+        v = pop(); u = pop();
+        push(ioReadPixel(u, v)); // u -> x ; v -> y
         NEXT;
     NEW_FRAME:
-		r = pop(); v = pop(); u = pop();
+        r = pop(); v = pop(); u = pop();
         #ifdef PARALLEL_OUTPUT
             if (nproc >= maxproc){
                 waitpid(-1, &status, 0);
@@ -2515,15 +2535,15 @@ int main(int argc, char* argv[]){
                 exit(EXIT_FAILURE);
             }
         #else
-		    ioFlush();
+            ioFlush();
             ioNewFrame(u, v, r);
         #endif
-		//printf("\r\f");
+        //printf("\r\f");
         NEXT;
     SET_PIXEL:
-		b = pop(); a = pop(); r = pop();
-		v = pop(); u = pop();
-		ioSetPixel(u, v, r, a, b); // u -> x ; v -> y ; a -> r
+        b = pop(); a = pop(); r = pop();
+        v = pop(); u = pop();
+        ioSetPixel(u, v, r, a, b); // u -> x ; v -> y ; a -> r
         NEXT;
     ADD_SAMPLE:
         u = pop(); v = pop();
@@ -2536,19 +2556,21 @@ int main(int argc, char* argv[]){
         NEXT;
     PUT_BYTE:
         u = pop();
-        putc((int)(unsigned char)u, OUTPUT_PUTBYTE);
+        //putc((int)(unsigned char)u, OUTPUT_PUTBYTE);
         ioPutByte(u);
         NEXT;
     //PUT_CHAR: ioPutChar(pop()); NEXT;
     //PUT_BYTE: ioPutByte(pop()); NEXT;
     READ_CHAR:
+        TTY_NEW;
         u = ioReadChar();
+        TTY_DEF;
         if (feof(stdin)) {
             clearerr(stdin);
         }
         push(u);
         NEXT;
-	#endif
+    #endif
 
     //-----------------
     BREAK:
@@ -2610,11 +2632,11 @@ int main(int argc, char* argv[]){
     #endif
     fprintf(OUTPUT_MSG, "\n");
 
-    #define HUMANSIZE(x) ((float)((x>1e9)?(x/1.0e9):(x>1.0e6)?(x/1.0e6):(x>1e3)?(x/1.0e3):x))
-    #define HUMANPREFIX(x)  ((x>1e9)?"GB":(x>1e6)?"MB":(x>1e3)?"KB":"B")
+    #define HUMANSIZE(x) ((double)(((x)>1e12)?((x)/1.0e12):((x)>1e9)?((x)/1.0e9):((x)>1.0e6)?((x)/1.0e6):((x)>1e3)?((x)/1.0e3):(x)))
+    #define HUMANPREFIX(x)  (((x)>1e12)?"T":((x)>1e9)?"G":((x)>1e6)?"M":((x)>1e3)?"K":"")
 
     #ifdef STEPCOUNT
-        long binsize = execEnd-execStart;
+        long binsize = execEnd-execStart+1;
         long steps = 0;
 
         for (int i=0; i < 256; i++) steps += samples[i];
@@ -2628,14 +2650,15 @@ int main(int argc, char* argv[]){
         }
 
         #if (defined(HISTOGRAM) && !defined(NOOPT))
-        fprintf(OUTPUT_MSG, "Binary file size: %lu bytes (%.1f %s)\n",
-                             binsize, HUMANSIZE(binsize) ,HUMANPREFIX(binsize));
+        fprintf(OUTPUT_MSG, "Binary file size: %lu bytes (%.1f %sB)\n",
+                             binsize, HUMANSIZE(binsize), HUMANPREFIX(binsize));
         fprintf(OUTPUT_MSG, "Executed %lu instructions; %lu fetches (%4.2lf insn per fetch)\n\n",
                             steps, fetchs, (double)steps/fetchs);
         #else
-        fprintf(OUTPUT_MSG, "Binary file size: %lu bytes (%.1f %s)\n",
-                             binsize, HUMANSIZE(binsize) ,HUMANPREFIX(binsize));
-        fprintf(OUTPUT_MSG, "Executed %lu instructions\n\n", steps);
+        fprintf(OUTPUT_MSG, "Binary file size: %lu bytes (%.1f %sB)\n",
+                             binsize, HUMANSIZE(binsize), HUMANPREFIX(binsize));
+        fprintf(OUTPUT_MSG, "Executed %lu instructions (%.2f %si)\n\n",
+                             steps, HUMANSIZE(steps), HUMANPREFIX(steps));
         #endif
 
 
@@ -2718,6 +2741,8 @@ int main(int argc, char* argv[]){
 		}
 
     }
+
+    TTY_DEF;
 
     return ret_val;
 }
