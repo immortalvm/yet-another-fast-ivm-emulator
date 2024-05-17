@@ -23,6 +23,7 @@
 #include <signal.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <limits.h>
 
 #define IVM_BINARY_VERSION 2
 

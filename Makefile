@@ -24,7 +24,7 @@ CC = gcc
 # Compiler options
 #CFLAGS = -Wall -Ofast -I.
 #CFLAGS = -Ofast -I. -DSTEPCOUNT -DFPE_ENABLED
-CFLAGS = -Ofast -I. -DSTEPCOUNT
+CFLAGS = -Ofast -I.
 LDFLAGS = -static -lpng -lz -lm
 # ----------------------RULES-------------------------------------------
 # Targets y sufijos
@@ -33,13 +33,13 @@ LDFLAGS = -static -lpng -lz -lm
 all: $(EXEC_SEQ) $(EXEC_FAST) $(EXEC_PAR) $(EXEC_HISTO) $(EXEC_TRACE2) $(EXEC_TRACE3) $(EXEC_TRACE4)
 
 $(EXEC_FAST): ivm_emu.c ivm_emu.h
-	$(CC) $(CFLAGS) $< -o $@
+	$(CC) $(CFLAGS) $< -o $@ -DSTEPCOUNT
 
 $(EXEC_SEQ): ivm_emu.c ivm_emu.h ivm_io.h 
-	$(CC) $(CFLAGS) $< -o $@ -DWITH_IO $(LDFLAGS)
+	$(CC) $(CFLAGS) $< -o $@ -DWITH_IO -DSTEPCOUNT $(LDFLAGS)
 
 $(EXEC_PAR): ivm_emu.c ivm_emu.h ivm_io.h 
-	$(CC) $(CFLAGS) $< -o $@ -DWITH_IO -DPARALLEL_OUTPUT $(LDFLAGS)
+	$(CC) $(CFLAGS) $< -o $@ -DWITH_IO -DSTEPCOUNT -DPARALLEL_OUTPUT $(LDFLAGS)
 
 $(EXEC_HISTO): ivm_emu.c ivm_emu.h ivm_io.h
 	$(CC) $(CFLAGS) $< -o $@ -DWITH_IO -DSTEPCOUNT -DNOOPT -DVERBOSE=1 -DHISTOGRAM $(LDFLAGS)

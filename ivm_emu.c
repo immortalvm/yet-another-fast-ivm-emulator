@@ -9,7 +9,7 @@
   Sergio Romero Montiel
   Oscar Plata Gonzalez
 
- Date: Mar 2020 - Feb 2021 - Jun 2023
+ Date: Mar 2020 - Feb 2021 - Jun 2023 - May 2024
 
 
  Input/output version:
@@ -56,15 +56,15 @@
  Note that this number refers to forked processes, although named NUM_THREADS
 */
 
-// Version v2.0 compatible with ivm implementation v1.1
+// Version v2.1.3 compatible with ivm implementation v2.1
 #ifdef WITH_IO
     #ifdef PARALLEL_OUTPUT
-    #define VERSION  "v2.1-fast-io-parallel"
+    #define VERSION  "v2.1.3-fast-io-parallel"
     #else
-    #define VERSION  "v2.1-fast-io"
+    #define VERSION  "v2.1.3-fast-io"
     #endif
 #else
-    #define VERSION  "v2.1-fast"
+    #define VERSION  "v2.1.3-fast"
 #endif
 
 #ifndef IVM_TERMIOS
@@ -610,7 +610,7 @@ long ivm_read_sym(char *filename)
 */
 
 enum format_stack {FORMAT_STACK_ROW, FORMAT_STACK_IVM, FORMAT_STACK_IVM_COMPACT_ROW};
-void print_stack(int format, unsigned int n){
+void print_stack(int format, unsigned long n){
     int i;
 
     // The first valid stack position is one word over
@@ -2675,10 +2675,6 @@ int main(int argc, char* argv[]){
     }
     #endif
 
-    //#if (VERBOSE >= 3)
-    destroy_symtable(Ts);
-    //#endif
-
     int ret_val;
     if (error == SIGSEGV) {
         fprintf(OUTPUT_MSG, "error: segmentation fault\n\n");
@@ -2698,19 +2694,29 @@ int main(int argc, char* argv[]){
         unsigned long nstack = (idx2addr(MemBytes - BYTESPERWORD) - SP)/sizeof(WORD_T);
         // If IVM_EMU_MAX_DUMPED_STACK is defined use as the max number of stack position shown
         // otherwise, show all (nstack)
+        unsigned long ntop = 31; // By default show only the 32 stack top positions
+
         char *ntop_str =  getenv("IVM_EMU_MAX_DUMPED_STACK");
-        unsigned int ntop = ntop_str?atoi(ntop_str):nstack;
+        if (ntop_str) {
+            ntop = atol(ntop_str);
+        } else {
+            char *full_stk_str =  getenv("IVM_EMU_DUMP_FULL_STACK");
+            if (full_stk_str) {
+                ntop = nstack;
+            }
+        }
 
         ret_val = *((uint64_t*)SP);
 
         // Print the stack in the same format than the vm implementation
         print_stack(FORMAT_STACK_IVM, ntop);
-        if (nstack > ntop) {
-            fprintf(OUTPUT_MSG, "(IVM_EMU_MAX_DUMPED_STACK defined: showing top %d out of %ld stack positions)\n", ntop+1, nstack);
-        } else {
-            fprintf(OUTPUT_MSG, "(showing all stack positions; define IVM_EMU_MAX_DUMPED_STACK to shorten)\n");
-        }
+
+        fprintf(OUTPUT_MSG, "Shown top %lu out of %lu stack positions\n", MIN(ntop+1, nstack), nstack);
+        fprintf(OUTPUT_MSG, " (export IVM_EMU_MAX_DUMPED_STACK=N to show N+1 stack positions only)\n");
+        fprintf(OUTPUT_MSG, " (to show all stack positions, unset IVM_EMU_MAX_DUMPED_STACK and export IVM_EMU_DUMP_FULL_STACK=1)\n");
+
     }
+    fflush(NULL);
 
     if (error) {
         fprintf(OUTPUT_MSG, "Last known instruction\n");
@@ -2727,7 +2733,16 @@ int main(int argc, char* argv[]){
         if (symL) fprintf(stderr, "   Nearest lower label: %s\n", symL->label);
         if (symU) fprintf(stderr, "   Nearest upper label: %s\n", symU->label);
         //#endif
+    }
+    fflush(NULL);
 
+    //#if (VERBOSE >= 3)
+    destroy_symtable(Ts);
+    //#endif
+
+    TTY_DEF;
+
+    if (error) {
 		if (error == SIGSEGV) {
 		    // real seg fault again;
 			// The script running the tests want the same behaviour in ivm64-gcc as in gcc
@@ -2739,10 +2754,7 @@ int main(int argc, char* argv[]){
         } else {
 		    ret_val = error | 0x80;
 		}
-
     }
-
-    TTY_DEF;
 
     return ret_val;
 }

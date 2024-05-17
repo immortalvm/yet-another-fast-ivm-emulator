@@ -44,8 +44,8 @@ static long readFile(char* filename, void* start) {
   return filelen;
 }
 
-static void writeFile(char* filename, void* start, size_t size) {
-  FILE* fileptr = fopen(filename, "wb");
+static void writeFile(char* filename, void* start, size_t size, int append) {
+  FILE* fileptr = fopen(filename, append?"ab":"wb");
   if (!fileptr || fwrite(start, 1, size, fileptr) < size) {
     fprintf(stderr, "Trouble writing: %s\n", filename);
     exit(NOT_WRITEABLE);
@@ -217,10 +217,12 @@ static uint32_t ioReadChar() {
   if (c1 == EOF) return eof;
   uint32_t u1 = (uint32_t) (c1 & 0x3f);
   if (c0 < 0xe0) return (u0 << 6) + u1;
+  u0 &= 0x0f; //*uma
   int c2 = getc(stdin);
   if (c2 == EOF) return eof;
   uint32_t u2 = (uint32_t) (c2 & 0x3f);
   if (c0 < 0xf0) return (u0 << 12) + (u1 << 6) + u2;
+  u0 &= 0x07; //*uma
   int c3 = getc(stdin);
   if (c3 == EOF) return eof;
   uint32_t u3 = (uint32_t) (c3 & 0x3f);
@@ -343,8 +345,8 @@ static uint8_t ioReadPixel(uint16_t x, uint16_t y) {
 /* Output state */
 
 // 16 MiB
-#define INITIAL_TEXT_SIZE 0x1000000
-#define INITIAL_BYTES_SIZE 0x1000000
+#define INITIAL_TEXT_SIZE    0x1000000
+#define INITIAL_BYTES_SIZE   0x1000000
 #define INITIAL_SAMPLES_SIZE 0x1000000
 #define INITIAL_OUT_IMG_SIZE 0x1000000
 
@@ -369,18 +371,45 @@ static void ioInitOut() {
   spaceInit(&currentOutImage);
 }
 
+static void ioFlush_console() {  //*uma: flush current cumulative text without increasing frame number
+  static int outputCounter_cur = -1;
+  if (outDir) {
+    static char filename[MAX_FILENAME];
+    char* ext = filename + sprintf(filename, "%s/%08d.", outDir, outputCounter);
+
+    int append = outputCounter_cur == outputCounter;
+
+    if (currentText.used > 0) {
+      sprintf(ext, "text");
+      writeFile(filename, currentText.array, currentText.used, append);
+    }
+    if (currentBytes.used > 0) {
+      sprintf(ext, "bytes");
+      writeFile(filename, currentBytes.array, currentBytes.used, append);
+    }
+  }
+  currentText.used = 0;
+  currentBytes.used = 0;
+  outputCounter_cur = outputCounter;
+}
+
 static void ioFlush() {
   if (outDir) {
     static char filename[MAX_FILENAME];
     char* ext = filename + sprintf(filename, "%s/%08d.", outDir, outputCounter);
-    if (currentText.used > 0) {
-      sprintf(ext, "text");
-      writeFile(filename, currentText.array, currentText.used);
-    }
-    if (currentBytes.used > 0) {
-      sprintf(ext, "bytes");
-      writeFile(filename, currentBytes.array, currentBytes.used);
-    }
+    //~ if (currentText.used > 0) {
+    //~   sprintf(ext, "text");
+    //~   //writeFile(filename, currentText.array, currentText.used);
+    //~   writeFile_append(filename, currentText.array, currentText.used); //*uma
+    //~ }
+    //~ if (currentBytes.used > 0) {
+    //~   sprintf(ext, "bytes");
+    //~   //writeFile(filename, currentBytes.array, currentBytes.used);
+    //~   writeFile_append(filename, currentBytes.array, currentBytes.used); //*uma
+    //~ }
+
+    ioFlush_console(); //*uma
+
     if (currentSamples.used > 0) {
       sprintf(ext, "wav");
       writeWav(filename, currentSamples.array, currentSamples.used, currentSampleRate);
@@ -397,16 +426,23 @@ static void ioFlush() {
   outputCounter++;
 }
 
+
 static void ioPutChar(uint32_t c) {
   int start = currentText.used;
   bytesPutChar(&currentText, c);
   int len = currentText.used - start;
   //printf("%.*s", len, currentText.array + start); //original
-  fprintf(stderr, "%.*s", len, currentText.array + start); //put_char to stderr as "ivm run" does
+  fprintf(stderr, "%.*s", len, currentText.array + start); //*uma: put_char to stderr as "ivm run" does
+  if (currentText.used >= INITIAL_TEXT_SIZE){ //*uma: flush console if buffer exhausted
+    ioFlush_console();
+  }
 }
 
 static void ioPutByte(uint8_t x) {
   bytesPutByte(&currentBytes, x);
+  if (currentBytes.used >= INITIAL_BYTES_SIZE){ //*uma: flush console if buffer exhausted
+    ioFlush_console();
+  }
 }
 
 static void ioAddSample(uint16_t left, uint16_t right) {
