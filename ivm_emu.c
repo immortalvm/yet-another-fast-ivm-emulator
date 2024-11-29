@@ -56,15 +56,15 @@
  Note that this number refers to forked processes, although named NUM_THREADS
 */
 
-// Version v2.1.3 compatible with ivm implementation v2.1
+// Version v2.1.5 compatible with ivm implementation v2.1
 #ifdef WITH_IO
     #ifdef PARALLEL_OUTPUT
-    #define VERSION  "v2.1.3-fast-io-parallel"
+    #define VERSION  "v2.1.5-fast-io-parallel"
     #else
-    #define VERSION  "v2.1.3-fast-io"
+    #define VERSION  "v2.1.5-fast-io"
     #endif
 #else
-    #define VERSION  "v2.1.3-fast"
+    #define VERSION  "v2.1.5-fast"
 #endif
 
 #ifndef IVM_TERMIOS
@@ -302,6 +302,7 @@
 
 
 // HEADERS
+#include <locale.h>
 #include <termios.h>
 // include emulator header file after defines
 #include "ivm_emu.h"
@@ -330,8 +331,13 @@ char* outDir = NULL;
 #undef PARALLEL_OUTPUT
 #endif
 
+// Output stream for the simulation 
 #define OUTPUT_PUTCHAR stderr
 #define OUTPUT_PUTBYTE stderr
+
+// Output stream for error messages and putchar, respectively
+// By default: stdout for program messages and stderr for put_char
+#define OUTPUT_MSG stdout
 
 // Check machine requeriments
 #if (defined(__BIG_ENDIAN__) || (defined(__BYTE_ORDER) && __BYTE_ORDER==__BIG_ENDIAN))
@@ -351,10 +357,6 @@ char* outDir = NULL;
 //        //////////////////////////////////
 //
 ////////////////////////////////////////////////////////////////////////////////
-
-// Output stream for error messages and putchar, respectively
-// By default: stdout for program messages and stderr for put_char
-#define OUTPUT_MSG stdout
 
 // Global stuff
 char *PC;               // Program counter
@@ -762,6 +764,16 @@ void print_insn(char *pc){
      #endif
 }
 
+void reset_std_streams()
+{
+    // Restore stream orientation after just in case wprintf()
+    // and printf() were mixed up
+    // Note that streams where IVM writes need to be not buffered
+    if (freopen(NULL, "a", OUTPUT_PUTCHAR)){};
+    if (freopen(NULL, "a", OUTPUT_PUTBYTE)){};
+    setvbuf(OUTPUT_PUTCHAR, NULL, _IONBF, 0);
+    setvbuf(OUTPUT_PUTBYTE, NULL, _IONBF, 0);
+}
 
 // setjmp/longjmp stuf
 jmp_buf env;
@@ -778,8 +790,8 @@ inline void push(WORD_T v){ SP-=BYTESPERWORD; *((WORD_T*)SP)=(WORD_T)v; }
 inline WORD_T pop(){ WORD_T v=*((WORD_T*)SP); SP+=BYTESPERWORD; return v; }
 
 
-int main(int argc, char* argv[]){
-
+int main(int argc, char* argv[])
+{
     int error = 0; // Any error that stops simulation
     uint8_t opcode1;
     #ifndef NOOPT
@@ -870,6 +882,21 @@ int main(int argc, char* argv[]){
         exit(EXIT_FAILURE);
     }
 
+    // get/set locale
+    #define ALT_LOCALE "C.UTF-8"
+    char *locale;
+    if (((locale = setlocale(LC_CTYPE, "")) == NULL) ||
+        ((strstr(locale, "UTF-8") == NULL) && (strstr(locale, "UTF8") == NULL) &&
+         (strstr(locale, "utf-8") == NULL) && (strstr(locale, "utf8") == NULL))) {
+        fprintf(OUTPUT_MSG, "locale = %s\nTrying to change to \"%s\"...", locale, ALT_LOCALE);
+        if (setlocale(LC_CTYPE, ALT_LOCALE) == NULL) {
+            fprintf(OUTPUT_MSG, "couldn't change locale\n");
+            fprintf(OUTPUT_MSG, "Multibyte characters may not work properly.\n");
+        } else {
+            fprintf(OUTPUT_MSG, "OK\n");
+        }
+    }
+
     // Get options
     filename = opt_bycodefile;
     MemBytes = opt_maxmem;
@@ -890,7 +917,7 @@ int main(int argc, char* argv[]){
         // Must be 2 or more: 1 thread for emulation and (N-1) threads for io
         maxproc = (maxproc<1)?1:maxproc;
         #if (VERBOSE > 0)
-        printf("maxproc=%d\n", maxproc);
+        fprintf(OUTPUT_MSG, "maxproc=%d\n", maxproc);
         #endif
     #endif
     #endif
@@ -1031,6 +1058,9 @@ int main(int argc, char* argv[]){
                     goto *addr[opcode1]
 
     #define NEXT    FETCH; EXEC
+
+    reset_std_streams();
+    TTY_DEF;
 
     error=setjmp(env);
     if (error == 0) {
@@ -2527,7 +2557,7 @@ int main(int argc, char* argv[]){
                 currentSamples.used = 0;
                 currentOutImage.used = 0;
                 ioNewFrame(u, v, r);
-                fflush(stdout);
+                fflush(OUTPUT_PUTCHAR);
                 nproc++;
                 while ((nproc > 0) && (waitpid(-1, &status, WNOHANG) > 0)){nproc--;};
             } else {
@@ -2553,6 +2583,7 @@ int main(int argc, char* argv[]){
         u = pop();
         //putc((int)(unsigned char)u, OUTPUT_PUTCHAR); // Print char to stderr or stdout
         ioPutChar(u);
+//fflush(NULL);
         NEXT;
     PUT_BYTE:
         u = pop();
@@ -2564,6 +2595,7 @@ int main(int argc, char* argv[]){
     READ_CHAR:
         TTY_NEW;
         u = ioReadChar();
+//fflush(NULL);
         TTY_DEF;
         if (feof(stdin)) {
             clearerr(stdin);
@@ -2615,6 +2647,10 @@ int main(int argc, char* argv[]){
     signal(SIGINT,SIG_DFL);
     signal(SIGSEGV,SIG_DFL);
     signal(SIGFPE,SIG_DFL);
+
+    // At exit, reset std stream orientation
+    reset_std_streams();
+    TTY_DEF;
 
     #ifdef PARALLEL_OUTPUT
     if (child){
@@ -2730,8 +2766,8 @@ int main(int argc, char* argv[]){
         // In case of error, print the nearest labels if available
         symrec *symL, *symU;
         find_nearest_label(Ts, addr2idx(PC-1), &symL, &symU);
-        if (symL) fprintf(stderr, "   Nearest lower label: %s\n", symL->label);
-        if (symU) fprintf(stderr, "   Nearest upper label: %s\n", symU->label);
+        if (symL) fprintf(OUTPUT_MSG, "   Nearest lower label: %s\n", symL->label);
+        if (symU) fprintf(OUTPUT_MSG, "   Nearest upper label: %s\n", symU->label);
         //#endif
     }
     fflush(NULL);
@@ -2739,8 +2775,6 @@ int main(int argc, char* argv[]){
     //#if (VERBOSE >= 3)
     destroy_symtable(Ts);
     //#endif
-
-    TTY_DEF;
 
     if (error) {
 		if (error == SIGSEGV) {

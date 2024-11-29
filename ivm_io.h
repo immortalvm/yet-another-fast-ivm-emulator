@@ -24,6 +24,11 @@
 #define NOT_WRITEABLE 7
 #define PNG_TROUBLE 8
 
+#if (__STDC_UTF_32__==1) //*uma: use wide char functions when possible
+// See: https://stackoverflow.com/questions/526430/c-programming-how-can-i-program-for-unicode?rq=4
+#define USE_STDC_UTF_32
+#endif
+
 /* Based on https://stackoverflow.com/a/22059317. */
 static long readFile(char* filename, void* start) {
   FILE* fileptr = fopen(filename, "rb");
@@ -181,6 +186,17 @@ static void bytesPutByte(Bytes* b, uint8_t x) {
     b->array[b->used++] = x;
 }
 
+
+//*uma
+#ifdef USE_STDC_UTF_32
+#include <wchar.h>
+static uint32_t ioReadChar()
+{
+    uint32_t res = getwchar();
+    if (res == WEOF) res = 4;
+    return res;
+}
+#else
 // UTF-32 to UTF-8
 static void bytesPutChar(Bytes* b, uint32_t c) {
   if (c < 0x80) {
@@ -228,6 +244,7 @@ static uint32_t ioReadChar() {
   uint32_t u3 = (uint32_t) (c3 & 0x3f);
   return (u0 << 18) + (u1 << 12) + (u2 << 6) + u3;
 }
+#endif
 
 static void bytesPutSample(Bytes* b, uint16_t left, uint16_t right) {
   bytesMakeSpace(b, 4);
@@ -429,11 +446,16 @@ static void ioFlush() {
 
 static void ioPutChar(uint32_t c) {
   int start = currentText.used;
+#ifdef USE_STDC_UTF_32
+  currentText.used += snprintf((char*)&currentText.array[start], 5, "%lc", c);
+  fputwc((wchar_t)c, stderr); //*uma: put_char to stderr as "ivm run" does
+#else
   bytesPutChar(&currentText, c);
   int len = currentText.used - start;
   //printf("%.*s", len, currentText.array + start); //original
   fprintf(stderr, "%.*s", len, currentText.array + start); //*uma: put_char to stderr as "ivm run" does
-  if (currentText.used >= INITIAL_TEXT_SIZE){ //*uma: flush console if buffer exhausted
+#endif
+  if (currentText.used + 5 > INITIAL_TEXT_SIZE){ //*uma: flush console if buffer exhausted
     ioFlush_console();
   }
 }

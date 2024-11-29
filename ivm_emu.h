@@ -24,6 +24,7 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <limits.h>
+#include <wchar.h>
 
 #define IVM_BINARY_VERSION 2
 
